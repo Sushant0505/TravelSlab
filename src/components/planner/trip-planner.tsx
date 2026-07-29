@@ -14,6 +14,8 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { TextField, SelectField } from "./field";
+import { CityAutocomplete } from "./city-autocomplete";
+import { OtpDialog } from "./otp-dialog";
 import { usePlanner, perTravelerBudget } from "@/store/planner";
 import { DESTINATIONS, TRIP_TYPES } from "@/lib/destinations";
 import { formatINR } from "@/lib/utils";
@@ -27,8 +29,12 @@ export function TripPlanner() {
     "idle",
   );
   const [leadRef, setLeadRef] = useState<string>("");
+  const [otpOpen, setOtpOpen] = useState(false);
+  const [verifiedMobile, setVerifiedMobile] = useState("");
+  const [otpCode, setOtpCode] = useState("");
 
   const perHead = perTravelerBudget(s);
+  const mobileVerified = Boolean(s.mobile) && verifiedMobile === s.mobile;
 
   function validateStep0() {
     const e: Record<string, string> = {};
@@ -51,8 +57,24 @@ export function TripPlanner() {
   }
 
   function handleNext() {
-    if (s.step === 0 && !validateStep0()) return;
+    if (s.step === 0) {
+      if (!validateStep0()) return;
+      // Verify the mobile via OTP before continuing.
+      if (!mobileVerified) {
+        setOtpOpen(true);
+        return;
+      }
+      s.next();
+      return;
+    }
     if (s.step === 1 && !validateStep1()) return;
+    s.next();
+  }
+
+  function handleOtpVerified(code: string) {
+    setVerifiedMobile(s.mobile);
+    setOtpCode(code);
+    setOtpOpen(false);
     s.next();
   }
 
@@ -73,6 +95,7 @@ export function TripPlanner() {
           travelDate: s.travelDate,
           tripType: s.tripType,
           preferences: s.preferences,
+          ...(mobileVerified ? { otp: otpCode } : {}),
         }),
       });
       const data = await res.json();
@@ -131,10 +154,17 @@ export function TripPlanner() {
                   onChange={(e) => s.set({ mobile: e.target.value })}
                   placeholder="9876543210"
                 />
-                <p className="flex items-center gap-2 text-xs text-muted-foreground">
-                  <ShieldCheck className="h-4 w-4 text-primary" />
-                  A one-time password may be sent to verify your number.
-                </p>
+                {mobileVerified ? (
+                  <p className="flex items-center gap-2 text-xs font-medium text-emerald-600">
+                    <ShieldCheck className="h-4 w-4" />
+                    Mobile number verified
+                  </p>
+                ) : (
+                  <p className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <ShieldCheck className="h-4 w-4 text-primary" />
+                    We&apos;ll send a one-time password to verify your number.
+                  </p>
+                )}
               </div>
             )}
 
@@ -158,11 +188,11 @@ export function TripPlanner() {
                       </option>
                     ))}
                   </SelectField>
-                  <TextField
+                  <CityAutocomplete
                     label="Departure city"
                     value={s.departureCity}
                     error={errors.departureCity}
-                    onChange={(e) => s.set({ departureCity: e.target.value })}
+                    onChange={(v) => s.set({ departureCity: v })}
                     placeholder="Mumbai"
                   />
                   <TextField
@@ -295,6 +325,13 @@ export function TripPlanner() {
           )}
         </div>
       </div>
+
+      <OtpDialog
+        mobile={s.mobile}
+        open={otpOpen}
+        onClose={() => setOtpOpen(false)}
+        onVerified={handleOtpVerified}
+      />
     </div>
   );
 }

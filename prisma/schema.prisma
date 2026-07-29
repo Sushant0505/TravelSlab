@@ -1,5 +1,3 @@
-// TripSlab — data model
-// Generator + datasource
 generator client {
   provider = "prisma-client-js"
 }
@@ -9,9 +7,152 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// ---------------------------------------------------------------------------
-// Enums
-// ---------------------------------------------------------------------------
+model Traveler {
+  id           String     @id @default(cuid())
+  name         String
+  email        String
+  mobile       String
+  passwordHash String?
+  status       UserStatus @default(ACTIVE)
+  lastIp       String?
+  fingerprint  String?
+  blockedUntil DateTime?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  leads        Lead[]
+
+  @@index([email])
+  @@index([mobile])
+  @@index([fingerprint])
+}
+
+model Lead {
+  id            String     @id @default(cuid())
+  reference     String     @unique
+  status        LeadStatus @default(NEW)
+  destination   String
+  departureCity String
+  travelers     Int
+  budget        Int
+  perHead       Int
+  travelDate    DateTime
+  tripType      String
+  preferences   String?
+  slab          SlabId
+  price         Int
+  leadScore     Int        @default(0)
+  otpVerified   Boolean    @default(false)
+  ipAddress     String?
+  fingerprint   String?
+  travelerId    String
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+  traveler      Traveler   @relation(fields: [travelerId], references: [id])
+  purchases     Purchase[]
+
+  @@index([slab, status])
+  @@index([status, createdAt])
+  @@index([destination])
+}
+
+model Agency {
+  id           String       @id @default(cuid())
+  name         String
+  ownerName    String
+  email        String       @unique
+  phone        String
+  gstNumber    String?
+  passwordHash String
+  documentsUrl String?
+  status       AgencyStatus @default(PENDING)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  purchases    Purchase[]
+
+  @@index([status])
+}
+
+model Purchase {
+  id        String   @id @default(cuid())
+  leadId    String
+  agencyId  String
+  amount    Int
+  invoiceNo String   @unique
+  createdAt DateTime @default(now())
+  payment   Payment?
+  agency    Agency   @relation(fields: [agencyId], references: [id])
+  lead      Lead     @relation(fields: [leadId], references: [id])
+
+  @@unique([leadId, agencyId])
+  @@index([agencyId, createdAt])
+  @@index([leadId])
+}
+
+model Payment {
+  id          String          @id @default(cuid())
+  purchaseId  String          @unique
+  provider    PaymentProvider
+  providerRef String
+  status      PaymentStatus   @default(CREATED)
+  amount      Int
+  currency    String          @default("INR")
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  purchase    Purchase        @relation(fields: [purchaseId], references: [id])
+
+  @@index([status])
+}
+
+model Admin {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  name         String
+  createdAt    DateTime @default(now())
+}
+
+model SlabPricing {
+  slab      SlabId   @id
+  leadPrice Int
+  updatedAt DateTime @updatedAt
+}
+
+model Banner {
+  id        String   @id @default(cuid())
+  kind      String   @default("composed") // "composed" | "image"
+  imageUrl  String? // full ready-made banner (kind = "image")
+  eyebrow   String
+  title     String
+  accent    String
+  subtitle  String?
+  discount  String?
+  cta       String
+  href      String
+  theme     String   @default("emerald")
+  images    String[]
+  active    Boolean  @default(true)
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([active, order])
+}
+
+model Notification {
+  id        String        @id @default(cuid())
+  audience  NotifAudience
+  refId     String?
+  kind      NotifKind     @default(SYSTEM)
+  title     String
+  body      String
+  slab      SlabId?
+  leadRef   String?
+  read      Boolean       @default(false)
+  createdAt DateTime      @default(now())
+
+  @@index([audience, read, createdAt])
+  @@index([audience, refId, createdAt])
+}
 
 enum SlabId {
   s0_5k
@@ -23,16 +164,16 @@ enum SlabId {
 }
 
 enum LeadStatus {
-  NEW // just generated, not yet verified
-  VERIFIED // OTP passed
-  AVAILABLE // listed in marketplace
-  SOLD // purchased by an agency
-  HIDDEN // hidden by admin
-  FRAUD // flagged as fake
+  NEW
+  VERIFIED
+  AVAILABLE
+  SOLD
+  HIDDEN
+  FRAUD
 }
 
 enum AgencyStatus {
-  PENDING // awaiting admin approval
+  PENDING
   APPROVED
   SUSPENDED
   BLOCKED
@@ -55,165 +196,6 @@ enum PaymentStatus {
   REFUNDED
 }
 
-// ---------------------------------------------------------------------------
-// Traveler (the person who submits a trip request)
-// ---------------------------------------------------------------------------
-
-model Traveler {
-  id        String     @id @default(cuid())
-  name      String
-  email     String
-  mobile    String
-  status    UserStatus @default(ACTIVE)
-  // Anti-abuse signals
-  lastIp        String?
-  fingerprint   String?
-  blockedUntil  DateTime?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  leads Lead[]
-
-  @@index([email])
-  @@index([mobile])
-  @@index([fingerprint])
-}
-
-// ---------------------------------------------------------------------------
-// Lead (a trip request; the tradeable unit of the marketplace)
-// ---------------------------------------------------------------------------
-
-model Lead {
-  id         String     @id @default(cuid())
-  reference  String     @unique // human-friendly, e.g. TS-8F3K2Q
-  status     LeadStatus @default(NEW)
-
-  // Trip details
-  destination   String
-  departureCity String
-  travelers     Int
-  budget        Int // total, INR
-  perHead       Int // budget / travelers, drives the slab
-  travelDate    DateTime
-  tripType      String
-  preferences   String?  @db.Text
-
-  // Marketplace metadata
-  slab      SlabId
-  price     Int // agency unlock price, INR (snapshot of slab price)
-  leadScore Int    @default(0) // 0..100
-
-  // Verification / abuse
-  otpVerified Boolean @default(false)
-  ipAddress   String?
-  fingerprint String?
-
-  travelerId String
-  traveler   Traveler @relation(fields: [travelerId], references: [id])
-
-  // Non-exclusive marketplace: the same lead can be unlocked by many agencies.
-  purchases Purchase[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@index([slab, status])
-  @@index([status, createdAt])
-  @@index([destination])
-}
-
-// ---------------------------------------------------------------------------
-// Agency (the buyer)
-// ---------------------------------------------------------------------------
-
-model Agency {
-  id          String       @id @default(cuid())
-  name        String
-  ownerName   String
-  email       String       @unique
-  phone       String
-  gstNumber   String?
-  passwordHash String
-  documentsUrl String? // KYC docs
-  status      AgencyStatus @default(PENDING)
-
-  purchases Purchase[]
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@index([status])
-}
-
-// ---------------------------------------------------------------------------
-// Purchase (an agency unlocks a lead)
-// ---------------------------------------------------------------------------
-
-model Purchase {
-  id        String @id @default(cuid())
-  leadId    String
-  lead      Lead   @relation(fields: [leadId], references: [id])
-  agencyId  String
-  agency    Agency @relation(fields: [agencyId], references: [id])
-
-  amount    Int // INR
-  invoiceNo String @unique
-
-  payment Payment?
-
-  createdAt DateTime @default(now())
-
-  // A lead may be unlocked by many agencies, but each agency only once.
-  @@unique([leadId, agencyId])
-  @@index([agencyId, createdAt])
-  @@index([leadId])
-}
-
-// ---------------------------------------------------------------------------
-// Payment (Razorpay / Stripe transaction backing a purchase)
-// ---------------------------------------------------------------------------
-
-model Payment {
-  id            String          @id @default(cuid())
-  purchaseId    String          @unique
-  purchase      Purchase        @relation(fields: [purchaseId], references: [id])
-  provider      PaymentProvider
-  providerRef   String // razorpay_order_id / stripe_payment_intent
-  status        PaymentStatus   @default(CREATED)
-  amount        Int
-  currency      String          @default("INR")
-  createdAt     DateTime        @default(now())
-  updatedAt     DateTime        @updatedAt
-
-  @@index([status])
-}
-
-// ---------------------------------------------------------------------------
-// Admin
-// ---------------------------------------------------------------------------
-
-model Admin {
-  id           String   @id @default(cuid())
-  email        String   @unique
-  passwordHash String
-  name         String
-  createdAt    DateTime @default(now())
-}
-
-// ---------------------------------------------------------------------------
-// SlabPricing (admin-editable override of default slab prices)
-// ---------------------------------------------------------------------------
-
-model SlabPricing {
-  slab      SlabId   @id
-  leadPrice Int
-  updatedAt DateTime @updatedAt
-}
-
-// ---------------------------------------------------------------------------
-// Notification (traveler / agency / admin feed)
-// ---------------------------------------------------------------------------
-
 enum NotifAudience {
   TRAVELER
   AGENCY
@@ -226,20 +208,4 @@ enum NotifKind {
   SUSPICIOUS
   AGENCY_REGISTRATION
   SYSTEM
-}
-
-model Notification {
-  id        String        @id @default(cuid())
-  audience  NotifAudience
-  refId     String? // travelerId / agencyId when targeted
-  kind      NotifKind     @default(SYSTEM)
-  title     String
-  body      String
-  slab      SlabId? // budget slab the notification relates to (lead alerts)
-  leadRef   String? // human-friendly lead reference, e.g. TS-8F3K2Q
-  read      Boolean       @default(false)
-  createdAt DateTime      @default(now())
-
-  @@index([audience, read, createdAt])
-  @@index([audience, refId, createdAt])
 }

@@ -2,6 +2,8 @@ import type { Metadata, Viewport } from "next";
 import { Plus_Jakarta_Sans, Sora } from "next/font/google";
 import "./globals.css";
 import { Providers } from "./providers";
+import { WelcomePopup } from "@/components/home/welcome-popup";
+import { FloatingActions } from "@/components/layout/floating-actions";
 
 const sans = Plus_Jakarta_Sans({
   subsets: ["latin"],
@@ -83,7 +85,11 @@ export default function RootLayout({
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(orgSchema) }}
         />
-        <Providers>{children}</Providers>
+        <Providers>
+          {children}
+          <WelcomePopup />
+          <FloatingActions />
+        </Providers>
       </body>
     </html>
   );

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { createOtp, otpMockMode } from "@/lib/otp";
 
 export const runtime = "nodejs";
 
@@ -9,8 +10,10 @@ const schema = z.object({
 
 /**
  * Send an OTP to the traveler's mobile.
- * Wire this to MSG91 / Twilio and store the hashed code in Redis with a TTL
- * (OTP_TTL_SECONDS). Returned here as a stub for local development.
+ *
+ * Mock mode (no MSG91_AUTH_KEY): the generated code is returned as `otp` so the
+ * UI can show it. To go live, add MSG91_AUTH_KEY and send the SMS here instead
+ * of returning the code.
  */
 export async function POST(req: NextRequest) {
   const parsed = schema.safeParse(await req.json().catch(() => ({})));
@@ -18,9 +21,17 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid mobile" }, { status: 422 });
   }
 
-  // const code = String(Math.floor(100000 + Math.random() * 900000));
-  // await redis.set(`otp:${parsed.data.mobile}`, hash(code), "EX", ttl);
-  // await sendSms(parsed.data.mobile, `Your TripSlab OTP is ${code}`);
+  const code = await createOtp(parsed.data.mobile);
+  const mock = otpMockMode();
 
-  return NextResponse.json({ ok: true, sent: true });
+  if (!mock) {
+    // TODO(auth-hardening): send `code` via MSG91 to parsed.data.mobile.
+  }
+
+  return NextResponse.json({
+    ok: true,
+    sent: true,
+    mock,
+    ...(mock ? { otp: code } : {}),
+  });
 }

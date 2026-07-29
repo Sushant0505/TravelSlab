@@ -3,15 +3,16 @@ import { SignJWT, jwtVerify } from "jose";
 /**
  * Minimal JWT session auth (HS256, httpOnly cookie).
  *
- * Two roles: AGENCY and ADMIN. The token payload carries the role + a stable
- * id (agency id / admin id) used by the API routes to scope data. Works in
- * both Node route handlers and the Edge middleware because `jose` is isomorphic.
+ * Three roles: TRAVELER, AGENCY and ADMIN. The token payload carries the role +
+ * a stable id (traveler id / agency id / admin id) used by the API routes to
+ * scope data. Works in both Node route handlers and the Edge middleware because
+ * `jose` is isomorphic.
  */
 
 export const SESSION_COOKIE = "ts_session";
 const MAX_AGE = 60 * 60 * 24 * 7; // 7 days
 
-export type Role = "AGENCY" | "ADMIN";
+export type Role = "TRAVELER" | "AGENCY" | "ADMIN";
 
 export interface Session {
   role: Role;

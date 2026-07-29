@@ -271,22 +271,14 @@ Prices are admin-editable via the `SlabPricing` table.
 ---
 
 ## Remaining work
-
 Everything above is built. What's left, in rough priority:
 
-- **Payments** — live Razorpay/Stripe checkout + webhook signature verification
-  in place of the demo stub (`/api/agency/purchase` currently accepts any
-  `paymentRef`). Persist `Payment` rows alongside each `Purchase`.
 - **Auth hardening** — per-account password hashes (bcrypt/argon2) instead of the
   shared demo password, traveler OTP wired to an SMS provider (MSG91), password
   reset + email verification. Optionally move sessions to a Redis store.
 - **Premium** — AI destination/budget suggestions, reviews, referrals, coupons,
   i18n, PWA, live chat + WhatsApp.
-- **Marketplace tuning** (optional) — a per-lead unlock cap (e.g. max N agencies)
-  with a "slots remaining" indicator, if leads should stay semi-exclusive.
 
-Done this iteration: **persistence** (Prisma/Postgres + Redis with in-memory
-fallback across all repos) and the **non-exclusive marketplace** model.
 
 ---
 

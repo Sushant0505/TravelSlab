@@ -273,7 +273,18 @@ export interface PurchaseResult {
   amount?: number;
 }
 
-export function purchaseLead(leadId: string, agencyId: string): Promise<PurchaseResult> {
+/** Payment metadata to persist alongside the unlock (from the gateway). */
+export interface PaymentInfo {
+  provider: "RAZORPAY" | "STRIPE";
+  providerRef: string;
+  status: "CREATED" | "PAID" | "FAILED" | "REFUNDED";
+}
+
+export function purchaseLead(
+  leadId: string,
+  agencyId: string,
+  payment?: PaymentInfo,
+): Promise<PurchaseResult> {
   return withDb(
     async (db) => {
       return db.$transaction(async (tx) => {
@@ -288,13 +299,34 @@ export function purchaseLead(leadId: string, agencyId: string): Promise<Purchase
         if (lead.status === "HIDDEN" || lead.status === "FRAUD")
           return { ok: false, error: "Lead not available" };
 
+        // Guard against a stale session whose agency id predates this DB —
+        // otherwise the Purchase FK insert fails with an opaque 500.
+        const agency = await tx.agency.findUnique({
+          where: { id: agencyId },
+          select: { id: true },
+        });
+        if (!agency)
+          return { ok: false, error: "Your session is out of date — please sign out and sign in again." };
+
         // Idempotent per agency: re-purchasing just returns the existing unlock.
         let invoiceNo = lead.purchases[0]?.invoiceNo;
         if (!invoiceNo) {
           invoiceNo = `INV-${Date.now().toString(36).toUpperCase()}`;
-          await tx.purchase.create({
+          const created = await tx.purchase.create({
             data: { leadId: lead.id, agencyId, amount: lead.price, invoiceNo },
           });
+          if (payment) {
+            await tx.payment.create({
+              data: {
+                purchaseId: created.id,
+                provider: payment.provider,
+                providerRef: payment.providerRef,
+                status: payment.status,
+                amount: lead.price,
+                currency: "INR",
+              },
+            });
+          }
         }
         return {
           ok: true,

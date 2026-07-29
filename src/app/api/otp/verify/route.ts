@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { verifyOtp } from "@/lib/otp";
 
 export const runtime = "nodejs";
 
@@ -8,27 +9,17 @@ const schema = z.object({
   otp: z.string().length(6),
 });
 
-/**
- * Verify an OTP. Compare against the hashed code stored in Redis.
- * Stub: accepts "123456" in development.
- */
+/** Verify a submitted OTP against the stored code (consumes it on success). */
 export async function POST(req: NextRequest) {
   const parsed = schema.safeParse(await req.json().catch(() => ({})));
   if (!parsed.success) {
     return NextResponse.json({ error: "Invalid payload" }, { status: 422 });
   }
 
-  // const stored = await redis.get(`otp:${parsed.data.mobile}`);
-  // const valid = stored && verifyHash(parsed.data.otp, stored);
-  const valid =
-    process.env.NODE_ENV === "development"
-      ? parsed.data.otp === "123456"
-      : false;
-
-  if (!valid) {
-    return NextResponse.json({ ok: false, error: "Wrong OTP" }, { status: 401 });
+  const result = await verifyOtp(parsed.data.mobile, parsed.data.otp);
+  if (!result.ok) {
+    return NextResponse.json({ ok: false, error: result.error }, { status: 401 });
   }
 
-  // await redis.del(`otp:${parsed.data.mobile}`);
   return NextResponse.json({ ok: true, verified: true });
 }

@@ -8,7 +8,6 @@ import { TripShowcase } from "@/components/home/trip-showcase";
 import { PopularDestinations } from "@/components/home/popular-destinations";
 import { HowItWorks } from "@/components/home/how-it-works";
 import { AgencyCTA } from "@/components/home/agency-cta";
-import { OfferPopup } from "@/components/home/offer-popup";
 
 export default function HomePage() {
   return (
@@ -25,7 +24,6 @@ export default function HomePage() {
         <AgencyCTA />
       </main>
       <Footer />
-      <OfferPopup />
     </>
   );
 }

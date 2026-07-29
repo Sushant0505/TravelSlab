@@ -17,7 +17,7 @@ import { withDb } from "@/lib/persistence";
 import { withRedis } from "@/lib/redis";
 import type { Notification as NotifRow } from "@prisma/client";
 
-export type NotifAudience = "AGENCY" | "ADMIN";
+export type NotifAudience = "TRAVELER" | "AGENCY" | "ADMIN";
 export type NotifKind =
   | "LEAD_AVAILABLE"
   | "LEAD_PURCHASED"
@@ -236,6 +236,21 @@ export function notifyLeadPurchased(agencyId: string, ref: string): Promise<void
   });
 }
 
+/** Notify a specific traveler (refId = travelerId). */
+export function notifyTraveler(
+  travelerId: string,
+  n: { kind?: NotifKind; title: string; body: string; leadRef?: string },
+): Promise<void> {
+  return pushNotif({
+    audience: "TRAVELER",
+    agencyId: travelerId, // refId
+    kind: n.kind ?? "SYSTEM",
+    title: n.title,
+    body: n.body,
+    leadRef: n.leadRef,
+  });
+}
+
 // ===========================================================================
 // Reads
 // ===========================================================================
@@ -263,6 +278,48 @@ export function listAdminNotifications(): Promise<Notification[]> {
       return rows.map(rowToNotif);
     },
     () => notifs.filter((n) => n.audience === "ADMIN"),
+  );
+}
+
+export function listTravelerNotifications(travelerId: string): Promise<Notification[]> {
+  return withDb(
+    async (db) => {
+      const rows = await db.notification.findMany({
+        where: { audience: "TRAVELER", refId: travelerId },
+        orderBy: { createdAt: "desc" },
+      });
+      return rows.map(rowToNotif);
+    },
+    () => notifs.filter((n) => n.audience === "TRAVELER" && n.agencyId === travelerId),
+  );
+}
+
+export function unreadTraveler(travelerId: string): Promise<number> {
+  return withDb(
+    (db) =>
+      db.notification.count({
+        where: { audience: "TRAVELER", refId: travelerId, read: false },
+      }),
+    () =>
+      notifs.filter(
+        (n) => n.audience === "TRAVELER" && n.agencyId === travelerId && !n.read,
+      ).length,
+  );
+}
+
+export function markAllReadTraveler(travelerId: string): Promise<void> {
+  return withDb(
+    async (db) => {
+      await db.notification.updateMany({
+        where: { audience: "TRAVELER", refId: travelerId },
+        data: { read: true },
+      });
+    },
+    () => {
+      notifs
+        .filter((n) => n.audience === "TRAVELER" && n.agencyId === travelerId)
+        .forEach((n) => (n.read = true));
+    },
   );
 }
 

@@ -6,6 +6,8 @@ const config: Config = {
     "./src/pages/**/*.{ts,tsx}",
     "./src/components/**/*.{ts,tsx}",
     "./src/app/**/*.{ts,tsx}",
+    // lib holds literal class strings (e.g. slab gradients) used via templates.
+    "./src/lib/**/*.{ts,tsx}",
   ],
   theme: {
     container: {

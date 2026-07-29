@@ -10,6 +10,7 @@ import {
   LineChart,
   ShieldAlert,
   Bell,
+  Images,
   LogOut,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -20,6 +21,7 @@ const NAV = [
   { label: "Agencies", href: "/admin/agencies", icon: Building2 },
   { label: "Users", href: "/admin/users", icon: Users },
   { label: "Revenue", href: "/admin/revenue", icon: LineChart },
+  { label: "Banners", href: "/admin/banners", icon: Images },
   { label: "Notifications", href: "/admin/notifications", icon: Bell },
 ];
 

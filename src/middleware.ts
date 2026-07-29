@@ -1,52 +1,111 @@
 import { NextRequest, NextResponse } from "next/server";
-import { verifySession, SESSION_COOKIE } from "@/lib/auth";
+import { verifySession, SESSION_COOKIE, type Role } from "@/lib/auth";
 
 /**
- * Route protection.
+ * Role-based access control (RBAC).
  *
- * Pages:
- *   /admin/**     -> ADMIN session (except /admin/login)
- *   /agencies/**  -> AGENCY session (except /agencies/login, /agencies/register)
- * Unauthenticated page requests redirect to the login page (?next=...).
+ * Every portal is locked to exactly one role, read from the JWT session cookie
+ * (`verifySession` decodes + verifies the token — no DB call, edge-safe):
  *
- * APIs (return JSON 401 instead of redirecting):
- *   /api/admin/**    -> ADMIN
- *   /api/agency/**   -> AGENCY (except /api/agency/register, which is public)
+ *   Pages                         APIs                    Role
+ *   /admin/**                     /api/admin/**           ADMIN
+ *   /agencies/**                  /api/agency/**          AGENCY
+ *   /dashboard/**                 /api/traveler/**        TRAVELER
+ *
+ * Access rules:
+ *   - The matching role is allowed through.
+ *   - A signed-in user hitting a portal that isn't theirs (wrong role), and any
+ *     traveler hitting /admin or /agencies, is UNAUTHORIZED -> redirected to
+ *     /login (APIs answer 401 JSON).
+ *   - A guest (no session) is sent to that portal's own login page so the
+ *     existing admin/agency/traveler login flows keep working.
+ *   - Login/registration pages inside a portal stay public; a member who is
+ *     already signed in is bounced to their dashboard.
  */
+
+interface PageArea {
+  prefix: string;
+  role: Role;
+  /** Where a guest is sent to authenticate for this portal. */
+  login: string;
+  /** Where an authenticated member of this role lands. */
+  home: string;
+  /** Paths inside the portal that never require a session (login/register). */
+  publicPaths: string[];
+}
+
+const PAGE_AREAS: PageArea[] = [
+  {
+    prefix: "/admin",
+    role: "ADMIN",
+    login: "/admin/login",
+    home: "/admin",
+    publicPaths: ["/admin/login"],
+  },
+  {
+    prefix: "/agencies",
+    role: "AGENCY",
+    login: "/agencies/login",
+    home: "/agencies",
+    publicPaths: ["/agencies/login", "/agencies/register"],
+  },
+  {
+    prefix: "/dashboard",
+    role: "TRAVELER",
+    login: "/login",
+    home: "/dashboard",
+    publicPaths: [],
+  },
+];
+
+const API_AREAS: { prefix: string; role: Role; publicPaths: string[] }[] = [
+  { prefix: "/api/admin", role: "ADMIN", publicPaths: [] },
+  { prefix: "/api/agency", role: "AGENCY", publicPaths: ["/api/agency/register"] },
+  { prefix: "/api/traveler", role: "TRAVELER", publicPaths: [] },
+];
+
+/** True when `pathname` is the prefix itself or a nested route under it. */
+function inArea(pathname: string, prefix: string): boolean {
+  return pathname === prefix || pathname.startsWith(`${prefix}/`);
+}
+
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
   const session = await verifySession(req.cookies.get(SESSION_COOKIE)?.value);
+  const role = session?.role;
 
-  // ---- API guards ----
-  if (pathname.startsWith("/api/admin")) {
-    return session?.role === "ADMIN" ? NextResponse.next() : json401();
-  }
-  if (pathname.startsWith("/api/agency")) {
-    if (pathname === "/api/agency/register") return NextResponse.next();
-    return session?.role === "AGENCY" ? NextResponse.next() : json401();
+  // ---- API RBAC (respond with 401 JSON, never a redirect) ----
+  for (const area of API_AREAS) {
+    if (!inArea(pathname, area.prefix)) continue;
+    if (area.publicPaths.includes(pathname)) return NextResponse.next();
+    return role === area.role ? NextResponse.next() : json401();
   }
 
-  // ---- Admin pages ----
-  if (pathname.startsWith("/admin")) {
-    const isLogin = pathname === "/admin/login";
-    if (session?.role === "ADMIN")
-      return isLogin
-        ? NextResponse.redirect(new URL("/admin", req.url))
+  // ---- Page RBAC ----
+  for (const area of PAGE_AREAS) {
+    if (!inArea(pathname, area.prefix)) continue;
+
+    // Public pages in the portal (login/register): let anyone view them, but
+    // send a member who is already signed in straight to their dashboard.
+    if (area.publicPaths.includes(pathname)) {
+      return role === area.role
+        ? NextResponse.redirect(new URL(area.home, req.url))
         : NextResponse.next();
-    return isLogin ? NextResponse.next() : redirectToLogin(req, "/admin/login", pathname);
+    }
+
+    // Protected page — must hold exactly this portal's role.
+    if (role === area.role) return NextResponse.next();
+
+    // Guest -> this portal's login. Wrong role (incl. travelers) -> /login.
+    const target = session ? "/login" : area.login;
+    return redirectToLogin(req, target, pathname);
   }
 
-  // ---- Agency pages ----
-  if (pathname.startsWith("/agencies")) {
-    const isPublic =
-      pathname === "/agencies/login" || pathname === "/agencies/register";
-    if (session?.role === "AGENCY")
-      return pathname === "/agencies/login"
-        ? NextResponse.redirect(new URL("/agencies", req.url))
-        : NextResponse.next();
-    return isPublic
-      ? NextResponse.next()
-      : redirectToLogin(req, "/agencies/login", pathname);
+  // ---- Traveler auth pages: keep signed-in travelers out of login/signup ----
+  if (pathname === "/login" || pathname === "/signup") {
+    return role === "TRAVELER"
+      ? NextResponse.redirect(new URL("/dashboard", req.url))
+      : NextResponse.next();
   }
 
   return NextResponse.next();
@@ -67,9 +126,18 @@ function redirectToLogin(req: NextRequest, loginPath: string, next: string) {
 
 export const config = {
   matcher: [
+    // Bare portal roots + all nested routes (explicit roots avoid any
+    // ambiguity in how ":path*" matches the prefix itself).
+    "/admin",
     "/admin/:path*",
+    "/agencies",
     "/agencies/:path*",
+    "/dashboard",
+    "/dashboard/:path*",
+    "/login",
+    "/signup",
     "/api/admin/:path*",
     "/api/agency/:path*",
+    "/api/traveler/:path*",
   ],
 };

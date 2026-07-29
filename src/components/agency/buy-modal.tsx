@@ -21,10 +21,54 @@ type Method = "upi" | "card" | "netbanking" | "wallet";
 
 const METHODS: { id: Method; label: string; icon: typeof Smartphone; provider: string }[] = [
   { id: "upi", label: "UPI", icon: Smartphone, provider: "Razorpay" },
-  { id: "card", label: "Card", icon: CreditCard, provider: "Stripe" },
+  { id: "card", label: "Card", icon: CreditCard, provider: "Razorpay" },
   { id: "netbanking", label: "Net Banking", icon: Building, provider: "Razorpay" },
   { id: "wallet", label: "Wallet", icon: Wallet, provider: "Razorpay" },
 ];
+
+// --- Razorpay Checkout (browser) types ------------------------------------
+interface RazorpayResponse {
+  razorpay_payment_id: string;
+  razorpay_order_id: string;
+  razorpay_signature: string;
+}
+interface RazorpayInstance {
+  open: () => void;
+  on: (event: string, cb: (resp: RazorpayResponse) => void) => void;
+}
+interface RazorpayOptions {
+  key: string;
+  order_id: string;
+  amount: number;
+  currency: string;
+  name: string;
+  description?: string;
+  theme?: { color?: string };
+  handler: (resp: RazorpayResponse) => void;
+  modal?: { ondismiss?: () => void };
+}
+declare global {
+  interface Window {
+    Razorpay?: new (opts: RazorpayOptions) => RazorpayInstance;
+  }
+}
+
+function loadRazorpayScript(): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (typeof window !== "undefined" && window.Razorpay) return resolve();
+    const existing = document.getElementById("razorpay-checkout-js");
+    if (existing) {
+      existing.addEventListener("load", () => resolve());
+      return;
+    }
+    const s = document.createElement("script");
+    s.id = "razorpay-checkout-js";
+    s.src = "https://checkout.razorpay.com/v1/checkout.js";
+    s.onload = () => resolve();
+    s.onerror = () => reject(new Error("Failed to load Razorpay"));
+    document.body.appendChild(s);
+  });
+}
 
 export function BuyModal({
   lead,
@@ -39,28 +83,21 @@ export function BuyModal({
   const [phase, setPhase] = useState<"select" | "processing" | "done" | "error">(
     "select",
   );
+  const [errorMsg, setErrorMsg] = useState("");
   const addPurchase = useAgency((s) => s.addPurchase);
   const spend = useAgency((s) => s.spend);
 
-  async function pay() {
+  /** Finalize: verify+unlock server-side, then update local state. */
+  async function completePurchase(extra: Record<string, string>) {
     if (!lead) return;
-    setPhase("processing");
-    const provider = METHODS.find((m) => m.id === method)?.provider === "Stripe"
-      ? "STRIPE"
-      : "RAZORPAY";
     try {
-      // In production: open the gateway checkout here, then post the signed ref.
       const res = await fetch("/api/agency/purchase", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          leadId: lead.id,
-          provider,
-          paymentRef: `demo_${Date.now()}`,
-        }),
+        body: JSON.stringify({ leadId: lead.id, ...extra }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data?.error ?? "Payment failed");
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error ?? "Payment could not be verified");
 
       addPurchase({
         leadId: lead.id,
@@ -78,7 +115,60 @@ export function BuyModal({
         onClose();
         setPhase("select");
       }, 1400);
+    } catch (e) {
+      setErrorMsg(e instanceof Error ? e.message : "Payment failed. Please try again.");
+      setPhase("error");
+    }
+  }
+
+  async function pay() {
+    if (!lead) return;
+    setErrorMsg("");
+    setPhase("processing");
+    try {
+      // 1. Ask the server to open an order (or tell us it's demo mode).
+      const orderRes = await fetch("/api/agency/payment/order", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ leadId: lead.id }),
+      });
+      const order = await orderRes.json();
+      if (!orderRes.ok) throw new Error(order?.error ?? "Could not start payment");
+
+      // 2a. No gateway configured → demo unlock.
+      if (order.demo) {
+        await completePurchase({ provider: "RAZORPAY", paymentRef: `demo_${Date.now()}` });
+        return;
+      }
+
+      // 2b. Real Razorpay Checkout.
+      await loadRazorpayScript();
+      if (!window.Razorpay) throw new Error("Razorpay unavailable");
+      const rzp = new window.Razorpay({
+        key: order.keyId,
+        order_id: order.orderId,
+        amount: order.amount,
+        currency: order.currency,
+        name: "TripSlab",
+        description: `Unlock lead · ${lead.destination}`,
+        theme: { color: "#4f46e5" },
+        handler: (resp) => {
+          completePurchase({
+            provider: "RAZORPAY",
+            razorpay_order_id: resp.razorpay_order_id,
+            razorpay_payment_id: resp.razorpay_payment_id,
+            razorpay_signature: resp.razorpay_signature,
+          });
+        },
+        modal: { ondismiss: () => setPhase("select") },
+      });
+      rzp.on("payment.failed", () => {
+        setErrorMsg("Payment failed at the gateway. Please try another method.");
+        setPhase("error");
+      });
+      rzp.open();
     } catch {
+      setErrorMsg("Could not start payment. Please try again.");
       setPhase("error");
     }
   }
@@ -160,12 +250,12 @@ export function BuyModal({
                 </div>
 
                 <div className="mt-2 text-center text-[11px] text-slate-400">
-                  Secured by {METHODS.find((m) => m.id === method)?.provider}
+                  Secured by Razorpay
                 </div>
 
                 {phase === "error" && (
                   <p className="mt-3 rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-600">
-                    Payment failed or the lead was just sold. Please try again.
+                    {errorMsg || "Payment failed or was cancelled. Please try again."}
                   </p>
                 )}
 

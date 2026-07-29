@@ -12,6 +12,7 @@ import {
   CustomizedPanel,
   TrendingPanel,
 } from "./mega-menu";
+import { UserMenu, UserMenuMobile } from "./user-menu";
 
 const MORE_LINKS: [string, string][] = [
   ["For Agencies", "/agencies"],
@@ -97,7 +98,7 @@ export function Navbar() {
               <span className="leading-tight">
                 <span className="block text-[11px] text-slate-400">Call Us</span>
                 <span className="block text-sm font-semibold text-slate-800">
-                  +91 97 97 97 21 75
+                  +91 9149050623
                 </span>
               </span>
             </a>
@@ -106,6 +107,8 @@ export function Navbar() {
             <Button asChild variant="gradient" size="sm" className="hidden md:inline-flex">
               <Link href="/plan">Plan a Trip</Link>
             </Button>
+
+            <UserMenu />
 
             <button
               className="text-slate-800 lg:hidden"
@@ -140,6 +143,8 @@ export function Navbar() {
                 <Button asChild variant="gradient" size="sm">
                   <Link href="/plan">Plan a Trip</Link>
                 </Button>
+
+                <UserMenuMobile onNavigate={() => setOpen(false)} />
               </div>
             </motion.div>
           )}

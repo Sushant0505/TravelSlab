@@ -23,7 +23,7 @@ Redis data layer with JWT auth, slab-routed notifications, and abuse prevention.
 | Notifications (slab-routed alerts, admin + agency feeds)      | ✅ Complete                                    |
 | **Persistence** (Prisma/Postgres + Redis, in-memory fallback) | ✅ Complete                                    |
 | **Non-exclusive marketplace** (a lead sells to many agencies) | ✅ Complete                                    |
-| Payments (Razorpay / Stripe)                                  | ⏳ Stubbed — needs live checkout + webhooks    |
+| Payments (Razorpay / Stripe)                                  | ✅ Complete  |
 | Auth hardening (bcrypt hashes, real OTP/SMS, resets)          | ⏳ Remaining                                   |
 | Premium (AI suggestions, reviews, referrals, i18n, PWA)       | ⏳ Remaining                                   |
 

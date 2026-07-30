@@ -13,9 +13,12 @@ import {
   FileText,
   Search,
   MapPin,
+  Info,
+  Phone,
 } from "lucide-react";
 import { AdminCard, PageHeading, StatusBadge, ActionButton } from "./ui";
 import { AgencyDocumentsModal } from "./agency-documents-modal";
+import { AgencyReasonDialog } from "./agency-reason-dialog";
 import { formatINR } from "@/lib/utils";
 import type { AdminAgency } from "@/server/admin-repo";
 
@@ -27,6 +30,10 @@ type StatusTab = (typeof STATUS_TABS)[number];
 export function AgenciesTable() {
   const qc = useQueryClient();
   const [docsFor, setDocsFor] = useState<AdminAgency | null>(null);
+  const [reasonFor, setReasonFor] = useState<{
+    agency: AdminAgency;
+    action: "suspend" | "block";
+  } | null>(null);
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<SortKey>("recent");
   const [statusTab, setStatusTab] = useState<StatusTab>("ALL");
@@ -42,7 +49,7 @@ export function AgenciesTable() {
   });
 
   const action = useMutation({
-    mutationFn: async (body: { id: string; action: string }) => {
+    mutationFn: async (body: { id: string; action: string; note?: string }) => {
       const r = await fetch("/api/admin/agencies", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -181,12 +188,23 @@ export function AgenciesTable() {
                       <div className="text-[11px] text-zinc-500">
                         {a.ownerName} · {a.email}
                       </div>
-                      {a.city && (
-                        <div className="mt-0.5 flex items-center gap-1 text-[11px] text-zinc-400">
-                          <MapPin className="h-3 w-3 text-zinc-500" />
-                          {a.city}
-                        </div>
-                      )}
+                      <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-zinc-400">
+                        {a.phone && (
+                          <a
+                            href={`tel:${a.phone}`}
+                            className="inline-flex items-center gap-1 hover:text-zinc-200"
+                          >
+                            <Phone className="h-3 w-3 text-zinc-500" />
+                            {a.phone}
+                          </a>
+                        )}
+                        {a.city && (
+                          <span className="inline-flex items-center gap-1">
+                            <MapPin className="h-3 w-3 text-zinc-500" />
+                            {a.city}
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className="px-4 py-3 font-mono text-xs text-zinc-400">
                       {a.gstNumber || <span className="text-zinc-600">—</span>}
@@ -216,6 +234,16 @@ export function AgenciesTable() {
                     <td className="px-4 py-3 text-zinc-300">{formatINR(a.spend)}</td>
                     <td className="px-4 py-3">
                       <StatusBadge status={a.status} />
+                      {(a.status === "SUSPENDED" || a.status === "BLOCKED") &&
+                        a.statusNote && (
+                          <div
+                            className="mt-1.5 flex max-w-[240px] items-start gap-1 text-[11px] leading-snug text-zinc-500"
+                            title={a.statusNote}
+                          >
+                            <Info className="mt-0.5 h-3 w-3 shrink-0 text-zinc-600" />
+                            <span className="line-clamp-2">{a.statusNote}</span>
+                          </div>
+                        )}
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex justify-end gap-1.5">
@@ -230,7 +258,7 @@ export function AgenciesTable() {
                         {a.status !== "SUSPENDED" && (
                           <ActionButton
                             tone="warning"
-                            onClick={() => action.mutate({ id: a.id, action: "suspend" })}
+                            onClick={() => setReasonFor({ agency: a, action: "suspend" })}
                           >
                             <PauseCircle className="h-3.5 w-3.5" /> Suspend
                           </ActionButton>
@@ -238,7 +266,7 @@ export function AgenciesTable() {
                         {a.status !== "BLOCKED" && (
                           <ActionButton
                             tone="danger"
-                            onClick={() => action.mutate({ id: a.id, action: "block" })}
+                            onClick={() => setReasonFor({ agency: a, action: "block" })}
                           >
                             <Ban className="h-3.5 w-3.5" /> Block
                           </ActionButton>
@@ -266,9 +294,33 @@ export function AgenciesTable() {
             busy={action.isPending}
             onClose={() => setDocsFor(null)}
             onAction={(act) => {
-              action.mutate({ id: docsFor.id, action: act });
-              setDocsFor(null);
+              // Suspend/Block need a reason — hand off to the reason dialog.
+              if (act === "suspend" || act === "block") {
+                const ag = docsFor;
+                setDocsFor(null);
+                setReasonFor({ agency: ag, action: act });
+              } else {
+                action.mutate({ id: docsFor.id, action: act });
+                setDocsFor(null);
+              }
             }}
+          />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {reasonFor && (
+          <AgencyReasonDialog
+            agencyName={reasonFor.agency.name}
+            action={reasonFor.action}
+            busy={action.isPending}
+            onCancel={() => setReasonFor(null)}
+            onConfirm={(note) =>
+              action.mutate(
+                { id: reasonFor.agency.id, action: reasonFor.action, note },
+                { onSuccess: () => setReasonFor(null) },
+              )
+            }
           />
         )}
       </AnimatePresence>

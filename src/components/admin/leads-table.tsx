@@ -2,8 +2,10 @@
 
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { EyeOff, Eye, ShieldX, Trash2, Loader2, MapPin } from "lucide-react";
+import { AnimatePresence } from "framer-motion";
+import { EyeOff, Eye, ShieldX, Trash2, Loader2, MapPin, Phone, Mail, Info } from "lucide-react";
 import { AdminCard, PageHeading, StatusBadge, ActionButton } from "./ui";
+import { LeadFraudDialog } from "./lead-fraud-dialog";
 import { formatINR } from "@/lib/utils";
 import { getSlab } from "@/lib/slabs";
 import type { AdminLeadRow } from "@/server/lead-repo";
@@ -15,6 +17,7 @@ export function LeadsTable() {
   const qc = useQueryClient();
   const [tab, setTab] = useState<(typeof STATUS_TABS)[number]>("ALL");
   const [dest, setDest] = useState("ALL");
+  const [fraudFor, setFraudFor] = useState<AdminLeadRow | null>(null);
 
   const { data, isLoading } = useQuery({
     queryKey: ["admin-leads", tab],
@@ -30,6 +33,7 @@ export function LeadsTable() {
       id: string;
       action: string;
       status?: string;
+      note?: string;
     }) => {
       const r = await fetch("/api/admin/leads", {
         method: "POST",
@@ -123,8 +127,21 @@ export function LeadsTable() {
                 visible.map((l) => (
                   <tr key={l.id} className="hover:bg-zinc-800/40">
                     <td className="px-4 py-3">
-                      <div className="font-mono text-xs text-zinc-300">{l.reference}</div>
-                      <div className="text-[11px] text-zinc-500">{l.travelerName}</div>
+                      <div className="font-mono text-xs text-zinc-400">{l.reference}</div>
+                      <div className="mt-0.5 font-medium text-white">{l.travelerName}</div>
+                      <div className="mt-1 flex flex-col gap-0.5 text-[11px] text-zinc-500">
+                        <a
+                          href={`tel:${l.travelerMobile}`}
+                          className="inline-flex items-center gap-1 hover:text-zinc-200"
+                        >
+                          <Phone className="h-3 w-3 text-zinc-600" />
+                          {l.travelerMobile || "—"}
+                        </a>
+                        <span className="inline-flex max-w-[220px] items-center gap-1">
+                          <Mail className="h-3 w-3 shrink-0 text-zinc-600" />
+                          <span className="truncate">{l.travelerEmail || "—"}</span>
+                        </span>
+                      </div>
                     </td>
                     <td className="px-4 py-3 font-medium text-white">{l.destination}</td>
                     <td className="px-4 py-3 text-zinc-300">{formatINR(l.budget)}</td>
@@ -134,6 +151,16 @@ export function LeadsTable() {
                     </td>
                     <td className="px-4 py-3">
                       <StatusBadge status={l.status} />
+                      {(l.status === "FRAUD" || l.status === "HIDDEN") &&
+                        l.statusNote && (
+                          <div
+                            className="mt-1.5 flex max-w-[220px] items-start gap-1 text-[11px] leading-snug text-zinc-500"
+                            title={l.statusNote}
+                          >
+                            <Info className="mt-0.5 h-3 w-3 shrink-0 text-zinc-600" />
+                            <span className="line-clamp-2">{l.statusNote}</span>
+                          </div>
+                        )}
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex justify-end gap-1.5">
@@ -155,7 +182,7 @@ export function LeadsTable() {
                         )}
                         <ActionButton
                           tone="warning"
-                          onClick={() => action.mutate({ id: l.id, action: "mark_fraud" })}
+                          onClick={() => setFraudFor(l)}
                           title="Mark as fraud"
                         >
                           <ShieldX className="h-3.5 w-3.5" /> Fraud
@@ -176,6 +203,23 @@ export function LeadsTable() {
           </table>
         </div>
       </AdminCard>
+
+      <AnimatePresence>
+        {fraudFor && (
+          <LeadFraudDialog
+            reference={fraudFor.reference}
+            travelerName={fraudFor.travelerName}
+            busy={action.isPending}
+            onCancel={() => setFraudFor(null)}
+            onConfirm={(note) =>
+              action.mutate(
+                { id: fraudFor.id, action: "mark_fraud", note },
+                { onSuccess: () => setFraudFor(null) },
+              )
+            }
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 }

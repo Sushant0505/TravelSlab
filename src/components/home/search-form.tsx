@@ -1,12 +1,14 @@
 "use client";
 
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import { MapPin, PlaneTakeoff, Users, Wallet, Calendar, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { usePlanner } from "@/store/planner";
 import { DESTINATIONS, TRIP_TYPES } from "@/lib/destinations";
-import { formatINR } from "@/lib/utils";
+import { filterCities } from "@/lib/cities";
+import { cn, formatINR } from "@/lib/utils";
 
 /**
  * Hero quick-search. Seeds the planner store and routes to /plan (step 2),
@@ -18,7 +20,7 @@ import { formatINR } from "@/lib/utils";
  */
 export function SearchForm({ variant = "panel" }: { variant?: "panel" | "bar" }) {
   const router = useRouter();
-  const { set, budget, travelers } = usePlanner();
+  const { set, budget, travelers, departureCity } = usePlanner();
 
   const perHead = travelers > 0 ? Math.round(budget / travelers) : budget;
 
@@ -48,14 +50,10 @@ export function SearchForm({ variant = "panel" }: { variant?: "panel" | "bar" })
         </select>
       </Field>
 
-      <Field icon={<PlaneTakeoff className="h-4 w-4" />} label="From">
-        <input
-          type="text"
-          placeholder="Departure city"
-          className="w-full bg-transparent text-sm font-medium outline-none placeholder:text-muted-foreground"
-          onChange={(e) => set({ departureCity: e.target.value })}
-        />
-      </Field>
+      <CityField
+        value={departureCity}
+        onChange={(v) => set({ departureCity: v })}
+      />
 
       <Field icon={<Users className="h-4 w-4" />} label="Travelers">
         <input
@@ -146,7 +144,7 @@ export function SearchForm({ variant = "panel" }: { variant?: "panel" | "bar" })
         </span>
         <div>
           <p className="font-display text-base font-bold leading-none">
-            Plan in 30 seconds
+            Get the trip lead
           </p>
           <p className="mt-1 text-xs text-muted-foreground">
             Free · no signup to get matched
@@ -193,5 +191,120 @@ function Field({
       </span>
       {children}
     </label>
+  );
+}
+
+/**
+ * Departure-city field with autocomplete: typing "de" suggests Dehradun,
+ * Delhi… while still allowing any free-typed value. Styled to match `Field`.
+ */
+function CityField({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [active, setActive] = useState(-1);
+  const wrapRef = useRef<HTMLDivElement>(null);
+
+  const matches = useMemo(() => filterCities(value), [value]);
+  const showList = open && matches.length > 0;
+
+  useEffect(() => {
+    function onDocDown(e: MouseEvent) {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", onDocDown);
+    return () => document.removeEventListener("mousedown", onDocDown);
+  }, []);
+
+  function choose(city: string) {
+    onChange(city);
+    setOpen(false);
+    setActive(-1);
+  }
+
+  function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setOpen(true);
+      setActive((a) => Math.min(a + 1, matches.length - 1));
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setActive((a) => Math.max(a - 1, 0));
+    } else if (e.key === "Enter" && showList && active >= 0) {
+      e.preventDefault();
+      choose(matches[active]);
+    } else if (e.key === "Escape") {
+      setOpen(false);
+    }
+  }
+
+  return (
+    <div
+      ref={wrapRef}
+      className="relative flex flex-col gap-1 rounded-2xl bg-background/60 p-3 ring-1 ring-border/60 transition-colors focus-within:ring-primary"
+    >
+      <span className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+        <PlaneTakeoff className="h-4 w-4" />
+        From
+      </span>
+      <input
+        type="text"
+        value={value}
+        placeholder="Departure city"
+        autoComplete="off"
+        role="combobox"
+        aria-expanded={showList}
+        aria-autocomplete="list"
+        onChange={(e) => {
+          onChange(e.target.value);
+          setOpen(true);
+          setActive(-1);
+        }}
+        onFocus={() => setOpen(true)}
+        onKeyDown={onKeyDown}
+        className="w-full bg-transparent text-sm font-medium outline-none placeholder:text-muted-foreground"
+      />
+
+      <AnimatePresence>
+        {showList && (
+          <motion.ul
+            initial={{ opacity: 0, y: -6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -6 }}
+            transition={{ duration: 0.14, ease: [0.22, 1, 0.36, 1] }}
+            className="absolute inset-x-0 top-full z-50 mt-1.5 max-h-56 overflow-auto rounded-2xl border border-border bg-background p-1.5 shadow-xl"
+          >
+            {matches.map((city, i) => (
+              <li key={city}>
+                <button
+                  type="button"
+                  // mousedown so selection wins over the input's blur
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    choose(city);
+                  }}
+                  onMouseEnter={() => setActive(i)}
+                  className={cn(
+                    "flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-sm transition-colors",
+                    i === active
+                      ? "bg-primary/10 text-primary"
+                      : "text-foreground hover:bg-muted",
+                  )}
+                >
+                  <MapPin className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  {city}
+                </button>
+              </li>
+            ))}
+          </motion.ul>
+        )}
+      </AnimatePresence>
+    </div>
   );
 }

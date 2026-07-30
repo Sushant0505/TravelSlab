@@ -32,6 +32,8 @@ export interface AdminAgency {
   gstNumber: string;
   city: string;
   status: AgencyStatus;
+  /** Admin's reason when the agency is suspended or blocked. */
+  statusNote: string;
   purchases: number;
   spend: number;
   joinedISO: string;
@@ -83,6 +85,12 @@ function seedAgencies(): AdminAgency[] {
       gstNumber: `2${(2 + i).toString()}ABCDE${1000 + i}F1Z5`,
       city: pick(rng, AGENCY_CITIES),
       status,
+      statusNote:
+        status === "SUSPENDED"
+          ? "Incomplete KYC — awaiting updated GST certificate."
+          : status === "BLOCKED"
+            ? "Repeated policy violations reported by travelers."
+            : "",
       purchases,
       spend: purchases * (99 + Math.floor(rng() * 300)),
       joinedISO: new Date(Date.now() - Math.floor(rng() * 240) * 86_400_000).toISOString(),
@@ -295,6 +303,7 @@ function adminCreateAgencyMemory(
     gstNumber: input.gstNumber ?? "",
     city: input.city ?? "",
     status: "PENDING",
+    statusNote: "",
     purchases: 0,
     spend: 0,
     joinedISO: new Date().toISOString(),
@@ -411,6 +420,7 @@ export type AgencyAction = "approve" | "suspend" | "block" | "reset_password";
 export function adminAgencyAction(
   id: string,
   action: AgencyAction,
+  opts?: { note?: string },
 ): Promise<{ ok: boolean; error?: string }> {
   const nextStatus =
     action === "approve"
@@ -421,17 +431,35 @@ export function adminAgencyAction(
           ? "BLOCKED"
           : undefined; // reset_password: no status change
 
+  // Approving clears any prior reason; suspend/block records the admin's note.
+  const note = (opts?.note ?? "").trim();
+  const nextNote =
+    action === "approve"
+      ? "" // cleared
+      : action === "suspend" || action === "block"
+        ? note
+        : undefined; // reset_password: leave note as-is
+
   return withDb(
     async (db) => {
       const a = await db.agency.findUnique({ where: { id } });
       if (!a) return { ok: false, error: "Agency not found" };
-      if (nextStatus) await db.agency.update({ where: { id }, data: { status: nextStatus } });
+      if (nextStatus) {
+        await db.agency.update({
+          where: { id },
+          data: {
+            status: nextStatus,
+            ...(nextNote !== undefined ? { statusNote: nextNote || null } : {}),
+          },
+        });
+      }
       return { ok: true };
     },
     () => {
       const a = agencies.find((x) => x.id === id);
       if (!a) return { ok: false, error: "Agency not found" };
       if (nextStatus) a.status = nextStatus;
+      if (nextNote !== undefined) a.statusNote = nextNote;
       return { ok: true };
     },
   );
@@ -634,6 +662,7 @@ function agencyToAdmin(a: {
   gstNumber: string | null;
   city?: string | null;
   status: AgencyStatus;
+  statusNote?: string | null;
   createdAt: Date;
   purchases: { amount: number }[];
   documents?: {
@@ -654,6 +683,7 @@ function agencyToAdmin(a: {
     gstNumber: a.gstNumber ?? "",
     city: a.city ?? "",
     status: a.status,
+    statusNote: a.statusNote ?? "",
     purchases: a.purchases.length,
     spend: a.purchases.reduce((s, p) => s + p.amount, 0),
     joinedISO: a.createdAt.toISOString(),

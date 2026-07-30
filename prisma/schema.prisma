@@ -41,6 +41,7 @@ model Lead {
   slab          SlabId
   price         Int
   leadScore     Int        @default(0)
+  statusNote    String? // admin reason when flagged as fraud / hidden
   otpVerified   Boolean    @default(false)
   ipAddress     String?
   fingerprint   String?
@@ -66,6 +67,7 @@ model Agency {
   passwordHash String
   documentsUrl String?
   status       AgencyStatus     @default(PENDING)
+  statusNote   String? // admin reason when suspended/blocked
   createdAt    DateTime         @default(now())
   updatedAt    DateTime         @updatedAt
   purchases    Purchase[]

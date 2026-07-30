@@ -10,6 +10,7 @@ import {
   ExternalLink,
   ShieldCheck,
   FileQuestion,
+  Info,
 } from "lucide-react";
 import { StatusBadge, ActionButton } from "./ui";
 import { isPdf, formatBytes, type KycDocMeta } from "@/lib/kyc";
@@ -61,6 +62,18 @@ export function AgencyDocumentsModal({
               {agency.ownerName} · {agency.email}
               {agency.gstNumber ? ` · GST ${agency.gstNumber}` : ""}
             </p>
+            {(agency.status === "SUSPENDED" || agency.status === "BLOCKED") &&
+              agency.statusNote && (
+                <p className="mt-1.5 flex items-start gap-1.5 rounded-lg bg-zinc-800/70 px-2.5 py-1.5 text-xs text-zinc-300">
+                  <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-300" />
+                  <span>
+                    <span className="font-medium text-zinc-200">
+                      {agency.status === "BLOCKED" ? "Blocked" : "Suspended"}:
+                    </span>{" "}
+                    {agency.statusNote}
+                  </span>
+                </p>
+              )}
           </div>
           <button
             onClick={onClose}

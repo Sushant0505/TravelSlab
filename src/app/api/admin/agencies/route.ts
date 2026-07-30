@@ -15,6 +15,7 @@ export async function GET() {
 const schema = z.object({
   id: z.string().min(1),
   action: z.enum(["approve", "suspend", "block", "reset_password"]),
+  note: z.string().max(500).optional(),
 });
 
 export async function POST(req: NextRequest) {
@@ -22,7 +23,11 @@ export async function POST(req: NextRequest) {
   if (!parsed.success) {
     return NextResponse.json({ error: "Invalid payload" }, { status: 422 });
   }
-  const res = await adminAgencyAction(parsed.data.id, parsed.data.action as AgencyAction);
+  const res = await adminAgencyAction(
+    parsed.data.id,
+    parsed.data.action as AgencyAction,
+    { note: parsed.data.note },
+  );
   if (!res.ok) return NextResponse.json(res, { status: 404 });
   return NextResponse.json({ ok: true });
 }

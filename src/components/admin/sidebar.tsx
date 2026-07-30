@@ -11,6 +11,7 @@ import {
   ShieldAlert,
   Bell,
   Images,
+  IndianRupee,
   LogOut,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -20,6 +21,7 @@ const NAV = [
   { label: "Leads", href: "/admin/leads", icon: Ticket },
   { label: "Agencies", href: "/admin/agencies", icon: Building2 },
   { label: "Users", href: "/admin/users", icon: Users },
+  { label: "Pricing", href: "/admin/pricing", icon: IndianRupee },
   { label: "Revenue", href: "/admin/revenue", icon: LineChart },
   { label: "Banners", href: "/admin/banners", icon: Images },
   { label: "Notifications", href: "/admin/notifications", icon: Bell },

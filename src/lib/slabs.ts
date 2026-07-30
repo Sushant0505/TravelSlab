@@ -107,3 +107,11 @@ export function getSlab(id: SlabId): Slab {
 export function leadPriceFor(budget: number): number {
   return assignSlab(budget).leadPrice;
 }
+
+/**
+ * Premium slabs (₹50k+ per traveller). New leads in these slabs are
+ * auto-hidden from the marketplace so an admin can vet them before release.
+ */
+export function isPremiumSlab(slab: SlabId): boolean {
+  return slab === "s50_100k" || slab === "s100k_plus";
+}

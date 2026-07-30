@@ -309,8 +309,9 @@ function BannerEditor({
                   onChange={(v) => set({ imageUrl: v })}
                 />
                 <p className="mt-1.5 text-xs text-zinc-500">
-                  Best as a wide image (e.g. 1600×320). Uploaded images are
-                  auto-resized and saved with the banner.
+                  For a perfect fit use a wide ~5:1 banner (e.g. 1600×320). The
+                  image fills the banner strip and is center-cropped if the
+                  ratio differs — check the live preview above.
                 </p>
               </div>
               <Text
@@ -744,6 +745,9 @@ function BannerImageUploader({
         </span>
         <span className="text-sm font-medium text-zinc-200">
           Click to upload a banner image
+        </span>
+        <span className="text-xs text-zinc-400">
+          Recommended 1600 × 320 px · wide 5:1
         </span>
         <span className="text-xs text-zinc-500">PNG, JPG or WebP · up to 15MB</span>
         <input type="file" accept="image/*" className="hidden" onChange={onFile} />

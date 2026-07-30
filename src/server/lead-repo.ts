@@ -10,8 +10,9 @@
  * `withDb`), and otherwise falls back to the in-memory demo data below.
  */
 
-import { assignSlab, getSlab, type SlabId } from "@/lib/slabs";
+import { assignSlab, getSlab, isPremiumSlab, type SlabId } from "@/lib/slabs";
 import { withDb } from "@/lib/persistence";
+import { memGetPrice } from "./pricing-repo";
 import {
   toMarketplaceLead,
   revealContact,
@@ -104,6 +105,10 @@ function generate(count: number): FullLead[] {
       slab: slab.id,
       price: slab.leadPrice,
       leadScore: Math.min(100, 40 + (otpVerified ? 25 : 0) + Math.floor(rng() * 30)),
+      statusNote:
+        status === "FRAUD"
+          ? "Suspected fake enquiry — mismatched contact details."
+          : "",
       otpVerified,
       createdAtISO: new Date(Date.now() - createdHrsAgo * 3_600_000).toISOString(),
     });
@@ -128,6 +133,7 @@ function rowToFullLead(row: LeadWithRelations): FullLead {
     id: row.id,
     reference: row.reference,
     status: row.status,
+    statusNote: row.statusNote ?? "",
     purchasedBy: row.purchases?.map((p) => p.agencyId) ?? [],
     name: row.traveler?.name ?? "",
     email: row.traveler?.email ?? "",
@@ -408,10 +414,13 @@ export function appendLead(input: NewLeadInput): Promise<FullLead> {
           }));
       }
 
+      // ₹50k+ leads are auto-hidden for admin vetting before they go live.
+      // Price uses the admin's slab-pricing override when one is set.
+      const override = await db.slabPricing.findUnique({ where: { slab: input.slab } });
       const lead = await db.lead.create({
         data: {
           reference: input.reference,
-          status: input.otpVerified ? "AVAILABLE" : "NEW",
+          status: leadStatusOnCreate(input),
           destination: input.destination,
           departureCity: input.departureCity,
           travelers: input.travelers,
@@ -421,7 +430,7 @@ export function appendLead(input: NewLeadInput): Promise<FullLead> {
           tripType: input.tripType,
           preferences: input.preferences || null,
           slab: input.slab,
-          price: getSlab(input.slab).leadPrice,
+          price: override?.leadPrice ?? getSlab(input.slab).leadPrice,
           leadScore: input.leadScore,
           otpVerified: input.otpVerified,
           travelerId: traveler.id,
@@ -438,7 +447,8 @@ function appendLeadMemory(input: NewLeadInput): FullLead {
   const lead: FullLead = {
     id: `lead_${Date.now().toString(36)}`,
     reference: input.reference,
-    status: input.otpVerified ? "AVAILABLE" : "NEW",
+    status: leadStatusOnCreate(input),
+    statusNote: "",
     purchasedBy: [],
     name: input.name,
     email: input.email,
@@ -451,13 +461,22 @@ function appendLeadMemory(input: NewLeadInput): FullLead {
     budget: input.budget,
     perHead: input.perHead,
     slab: input.slab,
-    price: getSlab(input.slab).leadPrice,
+    price: memGetPrice(input.slab),
     leadScore: input.leadScore,
     otpVerified: input.otpVerified,
     createdAtISO: new Date().toISOString(),
   };
   leads.unshift(lead);
   return lead;
+}
+
+/**
+ * Status a freshly submitted lead gets: premium (₹50k+) slabs are auto-hidden
+ * for admin review; otherwise verified leads go live and unverified wait.
+ */
+function leadStatusOnCreate(input: NewLeadInput): FullLead["status"] {
+  if (isPremiumSlab(input.slab)) return "HIDDEN";
+  return input.otpVerified ? "AVAILABLE" : "NEW";
 }
 
 // ===========================================================================
@@ -469,10 +488,17 @@ export interface AdminLeadRow {
   reference: string;
   destination: string;
   travelerName: string;
+  /** Traveler contact — admin is trusted + audited, so PII is shown. */
+  travelerMobile: string;
+  travelerEmail: string;
+  departureCity: string;
   budget: number;
   perHead: number;
   slab: SlabId;
+  price: number;
   status: FullLead["status"];
+  /** Admin reason when flagged as fraud / hidden. */
+  statusNote: string;
   leadScore: number;
   travelers: number;
   /** How many agencies have unlocked this lead. */
@@ -486,10 +512,15 @@ function toAdminRow(l: FullLead): AdminLeadRow {
     reference: l.reference,
     destination: l.destination,
     travelerName: l.name,
+    travelerMobile: l.mobile,
+    travelerEmail: l.email,
+    departureCity: l.departureCity,
     budget: l.budget,
     perHead: l.perHead,
     slab: l.slab,
+    price: l.price,
     status: l.status,
+    statusNote: l.statusNote,
     leadScore: l.leadScore,
     travelers: l.travelers,
     purchaseCount: l.purchasedBy.length,
@@ -520,8 +551,9 @@ export type LeadAction = "hide" | "unhide" | "mark_fraud" | "delete" | "assign";
 export function adminLeadAction(
   id: string,
   action: LeadAction,
-  payload?: { status?: FullLead["status"] },
+  payload?: { status?: FullLead["status"]; note?: string },
 ): Promise<{ ok: boolean; error?: string }> {
+  const note = (payload?.note ?? "").trim();
   return withDb(
     async (db) => {
       const lead = await db.lead.findUnique({ where: { id } });
@@ -532,10 +564,17 @@ export function adminLeadAction(
           await db.lead.update({ where: { id }, data: { status: "HIDDEN" } });
           break;
         case "unhide":
-          await db.lead.update({ where: { id }, data: { status: "AVAILABLE" } });
+          // Restoring clears any prior fraud/hide reason.
+          await db.lead.update({
+            where: { id },
+            data: { status: "AVAILABLE", statusNote: null },
+          });
           break;
         case "mark_fraud":
-          await db.lead.update({ where: { id }, data: { status: "FRAUD" } });
+          await db.lead.update({
+            where: { id },
+            data: { status: "FRAUD", statusNote: note || null },
+          });
           break;
         case "assign":
           if (payload?.status)
@@ -548,14 +587,14 @@ export function adminLeadAction(
       }
       return { ok: true };
     },
-    () => adminLeadActionMemory(id, action, payload),
+    () => adminLeadActionMemory(id, action, { ...payload, note }),
   );
 }
 
 function adminLeadActionMemory(
   id: string,
   action: LeadAction,
-  payload?: { status?: FullLead["status"] },
+  payload?: { status?: FullLead["status"]; note?: string },
 ): { ok: boolean; error?: string } {
   const idx = leads.findIndex((l) => l.id === id);
   if (idx === -1) return { ok: false, error: "Lead not found" };
@@ -566,9 +605,11 @@ function adminLeadActionMemory(
       break;
     case "unhide":
       lead.status = "AVAILABLE";
+      lead.statusNote = "";
       break;
     case "mark_fraud":
       lead.status = "FRAUD";
+      lead.statusNote = payload?.note ?? "";
       break;
     case "assign":
       if (payload?.status) lead.status = payload.status;

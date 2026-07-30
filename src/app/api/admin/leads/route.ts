@@ -26,6 +26,7 @@ const actionSchema = z.object({
   status: z
     .enum(["NEW", "VERIFIED", "AVAILABLE", "SOLD", "HIDDEN", "FRAUD"])
     .optional(),
+  note: z.string().max(500).optional(),
 });
 
 // POST /api/admin/leads — edit/hide/mark-fraud/assign/delete a lead
@@ -34,8 +35,8 @@ export async function POST(req: NextRequest) {
   if (!parsed.success) {
     return NextResponse.json({ error: "Invalid payload" }, { status: 422 });
   }
-  const { id, action, status } = parsed.data;
-  const res = await adminLeadAction(id, action as LeadAction, { status });
+  const { id, action, status, note } = parsed.data;
+  const res = await adminLeadAction(id, action as LeadAction, { status, note });
   if (!res.ok) return NextResponse.json(res, { status: 404 });
   return NextResponse.json({ ok: true });
 }

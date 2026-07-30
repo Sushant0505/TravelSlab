@@ -116,6 +116,56 @@ export function findOrCreateTraveler(input: {
   );
 }
 
+/**
+ * Find-or-create by EMAIL only — used by Google (OAuth) sign-in, which gives a
+ * verified email + name but no mobile. Matches an existing account by email
+ * (so an OTP-created account links up), else creates one with a blank mobile
+ * the traveler can fill in from their profile.
+ */
+export function findOrCreateTravelerByEmail(input: {
+  name: string;
+  email: string;
+}): Promise<TravelerAccount> {
+  const email = input.email.trim().toLowerCase();
+  const name = input.name.trim() || email.split("@")[0];
+  return withDb(
+    async (db) => {
+      const existing = await db.traveler.findFirst({
+        where: { email: { equals: email, mode: "insensitive" } },
+        orderBy: { createdAt: "asc" },
+      });
+      if (existing) {
+        // Keep the name fresh, but never wipe an existing mobile.
+        const updated = await db.traveler.update({
+          where: { id: existing.id },
+          data: { name },
+        });
+        return toAccount(updated);
+      }
+      const created = await db.traveler.create({
+        data: { name, email, mobile: "" },
+      });
+      return toAccount(created);
+    },
+    () => {
+      const found = mem.find((x) => x.email === email);
+      if (found) {
+        found.name = name;
+        return toAccount(found);
+      }
+      const created: MemTraveler = {
+        id: `traveler_${Date.now().toString(36)}`,
+        name,
+        email,
+        mobile: "",
+        status: "ACTIVE",
+      };
+      mem.unshift(created);
+      return toAccount(created);
+    },
+  );
+}
+
 export function getTravelerAccount(id: string): Promise<TravelerAccount | null> {
   return withDb(
     async (db) => {

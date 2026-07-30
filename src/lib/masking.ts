@@ -16,6 +16,8 @@ export interface FullLead {
   id: string;
   reference: string;
   status: LeadStatus;
+  /** Admin reason when flagged as fraud / hidden (admin-only). */
+  statusNote: string;
   // PII — gated behind purchase
   name: string;
   email: string;

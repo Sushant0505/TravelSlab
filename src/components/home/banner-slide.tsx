@@ -5,23 +5,37 @@ import Image from "next/image";
 import { ArrowRight } from "lucide-react";
 import { bannerGradientCss, type BannerDTO } from "@/lib/banners";
 
+/**
+ * Fixed, responsive banner-strip height shared by every slide (composed +
+ * ready-made image) so the carousel never jumps and uploaded graphics always
+ * fill the same area. ~5:1 on desktop to match the recommended 1600×320 upload.
+ */
+const BANNER_HEIGHT = "h-40 sm:h-48 md:h-56";
+
 /** A single promo banner slide. Shared by the home carousel + admin preview. */
 export function BannerSlide({ banner }: { banner: BannerDTO }) {
   // Ready-made image banner — the whole graphic links to `href`.
   if (banner.kind === "image") {
     if (!banner.imageUrl) {
       return (
-        <div className="grid h-32 place-items-center bg-slate-100 text-sm text-slate-400">
-          Upload a banner image
+        <div className={`grid ${BANNER_HEIGHT} place-items-center bg-slate-100 text-center text-slate-400`}>
+          <div>
+            <p className="text-sm font-medium">Upload a banner image</p>
+            <p className="mt-1 text-xs text-slate-400">
+              Recommended 1600 × 320 px · wide 5:1
+            </p>
+          </div>
         </div>
       );
     }
     const img = (
+      // Uploaded graphic fills the fixed banner strip so every slide is the
+      // same size — no height jumps, no oversized images.
       // eslint-disable-next-line @next/next/no-img-element
       <img
         src={banner.imageUrl}
         alt={banner.title || "Promotional banner"}
-        className="block h-auto w-full"
+        className={`block w-full ${BANNER_HEIGHT} object-cover object-center`}
       />
     );
     return banner.href ? (
@@ -35,7 +49,7 @@ export function BannerSlide({ banner }: { banner: BannerDTO }) {
 
   const hasBg = Boolean(banner.imageUrl);
   return (
-    <div className="relative flex items-center justify-between gap-4 overflow-hidden px-6 py-7 md:px-10 md:py-9">
+    <div className={`relative flex ${BANNER_HEIGHT} items-center justify-between gap-4 overflow-hidden px-6 md:px-10`}>
       {/* Optional background photo */}
       {hasBg && (
         // eslint-disable-next-line @next/next/no-img-element

@@ -376,18 +376,37 @@ export interface NewLeadInput {
   slab: SlabId;
   leadScore: number;
   otpVerified: boolean;
+  /** When set, the lead is linked to this signed-in traveler's account. */
+  travelerId?: string;
 }
 
 export function appendLead(input: NewLeadInput): Promise<FullLead> {
   return withDb(
     async (db) => {
-      const traveler =
-        (await db.traveler.findFirst({
-          where: { email: input.email, mobile: input.mobile },
-        })) ??
-        (await db.traveler.create({
-          data: { name: input.name, email: input.email, mobile: input.mobile },
-        }));
+      // Logged-in traveler -> attach the lead to their account directly (so it
+      // shows in their dashboard), refreshing their contact details. Guests are
+      // matched by email (case-insensitive) + mobile, else a new row is created.
+      let traveler = null;
+      if (input.travelerId) {
+        traveler = await db.traveler
+          .update({
+            where: { id: input.travelerId },
+            data: { name: input.name, mobile: input.mobile },
+          })
+          .catch(() => null);
+      }
+      if (!traveler) {
+        traveler =
+          (await db.traveler.findFirst({
+            where: {
+              email: { equals: input.email, mode: "insensitive" },
+              mobile: input.mobile,
+            },
+          })) ??
+          (await db.traveler.create({
+            data: { name: input.name, email: input.email, mobile: input.mobile },
+          }));
+      }
 
       const lead = await db.lead.create({
         data: {

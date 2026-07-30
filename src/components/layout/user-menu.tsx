@@ -11,7 +11,6 @@ import {
   Settings,
   LogOut,
   LogIn,
-  UserPlus,
   User,
   ChevronDown,
   type LucideIcon,
@@ -108,7 +107,7 @@ export function UserMenu() {
           >
             <DropdownMenuLabel>
               <p className="text-sm font-semibold text-slate-900">Welcome to TripSlab</p>
-              <p className="text-xs text-slate-500">Log in to track your trips & quotes</p>
+              <p className="text-xs text-slate-500">Sign in with a one-time code — no password</p>
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
 
@@ -118,19 +117,13 @@ export function UserMenu() {
                 Login
               </Link>
             </DropdownMenuItem>
-            <DropdownMenuItem asChild>
-              <Link href="/signup">
-                <UserPlus className="h-4 w-4 text-slate-400" />
-                Sign Up
-              </Link>
-            </DropdownMenuItem>
 
             <div className="p-1.5 pt-1">
               <Link
-                href="/signup"
+                href="/plan"
                 className="block rounded-xl bg-gradient-to-r from-primary to-accent px-3 py-2.5 text-center text-sm font-bold text-white shadow-sm transition-transform hover:scale-[1.02]"
               >
-                Create a free account
+                Plan a trip
               </Link>
             </div>
           </motion.div>
@@ -309,7 +302,7 @@ export function UserMenuMobile({ onNavigate }: { onNavigate?: () => void }) {
           <Link href="/login">Login</Link>
         </Button>
         <Button asChild variant="gradient" size="sm" onClick={onNavigate}>
-          <Link href="/signup">Sign Up</Link>
+          <Link href="/plan">Plan a trip</Link>
         </Button>
       </div>
     );

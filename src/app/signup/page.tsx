@@ -1,11 +1,7 @@
-import type { Metadata } from "next";
-import { TravelerAuthForm } from "@/components/auth/traveler-auth";
+import { redirect } from "next/navigation";
 
-export const metadata: Metadata = {
-  title: "Create your account",
-  description: "Create a free TripSlab traveler account and get matched with verified agencies.",
-};
-
+// Accounts are created automatically when a trip is submitted — there is no
+// separate password signup. Send visitors to the planner.
 export default function SignupPage() {
-  return <TravelerAuthForm mode="signup" />;
+  redirect("/plan");
 }

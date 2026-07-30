@@ -1,6 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { useQueryClient } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   User,
@@ -8,7 +10,6 @@ import {
   CheckCircle2,
   ArrowRight,
   ArrowLeft,
-  Loader2,
   PartyPopper,
   ShieldCheck,
 } from "lucide-react";
@@ -24,17 +25,14 @@ const STEPS = ["Your details", "Trip details", "Confirm"];
 
 export function TripPlanner() {
   const s = usePlanner();
+  const router = useRouter();
+  const qc = useQueryClient();
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const [status, setStatus] = useState<"idle" | "sending" | "done" | "error">(
-    "idle",
-  );
+  const [status, setStatus] = useState<"idle" | "done">("idle");
   const [leadRef, setLeadRef] = useState<string>("");
   const [otpOpen, setOtpOpen] = useState(false);
-  const [verifiedMobile, setVerifiedMobile] = useState("");
-  const [otpCode, setOtpCode] = useState("");
 
   const perHead = perTravelerBudget(s);
-  const mobileVerified = Boolean(s.mobile) && verifiedMobile === s.mobile;
 
   function validateStep0() {
     const e: Record<string, string> = {};
@@ -57,29 +55,17 @@ export function TripPlanner() {
   }
 
   function handleNext() {
-    if (s.step === 0) {
-      if (!validateStep0()) return;
-      // Verify the mobile via OTP before continuing.
-      if (!mobileVerified) {
-        setOtpOpen(true);
-        return;
-      }
-      s.next();
-      return;
-    }
+    if (s.step === 0 && !validateStep0()) return;
     if (s.step === 1 && !validateStep1()) return;
     s.next();
   }
 
-  function handleOtpVerified(code: string) {
-    setVerifiedMobile(s.mobile);
-    setOtpCode(code);
-    setOtpOpen(false);
-    s.next();
-  }
-
-  async function submitLead() {
-    setStatus("sending");
+  /**
+   * Called from the OTP dialog with the entered code. The server verifies the
+   * OTP, auto-creates/links the traveler account, creates the lead and logs the
+   * traveler in — all in one call. On success we route to the dashboard.
+   */
+  async function finalizeLead(code: string): Promise<{ ok: boolean; error?: string }> {
     try {
       const res = await fetch("/api/leads", {
         method: "POST",
@@ -95,15 +81,20 @@ export function TripPlanner() {
           travelDate: s.travelDate,
           tripType: s.tripType,
           preferences: s.preferences,
-          ...(mobileVerified ? { otp: otpCode } : {}),
+          otp: code,
         }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data?.error ?? "Failed");
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        return { ok: false, error: data?.error ?? "Could not submit your trip." };
+      }
       setLeadRef(data.reference ?? "");
+      await qc.invalidateQueries({ queryKey: ["auth-session"] });
+      setOtpOpen(false);
       setStatus("done");
+      return { ok: true };
     } catch {
-      setStatus("error");
+      return { ok: false, error: "Network error. Please try again." };
     }
   }
 
@@ -154,17 +145,11 @@ export function TripPlanner() {
                   onChange={(e) => s.set({ mobile: e.target.value })}
                   placeholder="9876543210"
                 />
-                {mobileVerified ? (
-                  <p className="flex items-center gap-2 text-xs font-medium text-emerald-600">
-                    <ShieldCheck className="h-4 w-4" />
-                    Mobile number verified
-                  </p>
-                ) : (
-                  <p className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <ShieldCheck className="h-4 w-4 text-primary" />
-                    We&apos;ll send a one-time password to verify your number.
-                  </p>
-                )}
+                <p className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <ShieldCheck className="h-4 w-4 text-primary" />
+                  No password needed — we&apos;ll verify your mobile with an OTP
+                  and set up your account automatically.
+                </p>
               </div>
             )}
 
@@ -277,12 +262,12 @@ export function TripPlanner() {
                     value={`${formatINR(s.budget)} (${formatINR(perHead)}/head)`}
                   />
                 </dl>
-                {status === "error" && (
-                  <p className="rounded-xl bg-red-500/10 px-4 py-3 text-sm text-red-500">
-                    Something went wrong (you may have hit the 3-leads-per-day
-                    limit). Please try again later.
-                  </p>
-                )}
+                <p className="flex items-center gap-2 rounded-xl bg-primary/10 px-4 py-3 text-xs text-muted-foreground">
+                  <ShieldCheck className="h-4 w-4 shrink-0 text-primary" />
+                  We&apos;ll text a verification code to{" "}
+                  <b className="text-foreground">+91 {s.mobile}</b> to confirm
+                  and finalize your trip.
+                </p>
               </div>
             )}
           </motion.div>
@@ -292,7 +277,7 @@ export function TripPlanner() {
           <Button
             variant="ghost"
             onClick={s.back}
-            disabled={s.step === 0 || status === "sending"}
+            disabled={s.step === 0}
             className={s.step === 0 ? "invisible" : ""}
           >
             <ArrowLeft className="h-4 w-4" />
@@ -305,22 +290,9 @@ export function TripPlanner() {
               <ArrowRight className="h-4 w-4" />
             </Button>
           ) : (
-            <Button
-              variant="gradient"
-              onClick={submitLead}
-              disabled={status === "sending"}
-            >
-              {status === "sending" ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Generating lead…
-                </>
-              ) : (
-                <>
-                  <PartyPopper className="h-4 w-4" />
-                  Generate my lead
-                </>
-              )}
+            <Button variant="gradient" onClick={() => setOtpOpen(true)}>
+              <PartyPopper className="h-4 w-4" />
+              Verify &amp; submit
             </Button>
           )}
         </div>
@@ -330,7 +302,7 @@ export function TripPlanner() {
         mobile={s.mobile}
         open={otpOpen}
         onClose={() => setOtpOpen(false)}
-        onVerified={handleOtpVerified}
+        onSubmit={finalizeLead}
       />
     </div>
   );
@@ -433,6 +405,14 @@ function BudgetNote({ perHead }: { perHead: number }) {
 
 function SuccessCard({ reference }: { reference: string }) {
   const reset = usePlanner((st) => st.reset);
+  const router = useRouter();
+
+  // The traveler is now signed in — take them to their dashboard.
+  useEffect(() => {
+    const t = setTimeout(() => router.push("/dashboard"), 1600);
+    return () => clearTimeout(t);
+  }, [router]);
+
   return (
     <motion.div
       initial={{ opacity: 0, scale: 0.95 }}
@@ -460,11 +440,23 @@ function SuccessCard({ reference }: { reference: string }) {
         </p>
       )}
       <p className="mt-6 text-sm text-muted-foreground">
-        Your name and number stay hidden until an agency buys your lead.
+        Taking you to your dashboard… Your name and number stay hidden until an
+        agency buys your lead.
       </p>
-      <Button variant="outline" className="mt-6" onClick={() => reset()}>
-        Plan another trip
-      </Button>
+      <div className="mt-6 flex justify-center gap-3">
+        <Button variant="gradient" onClick={() => router.push("/dashboard")}>
+          Go to dashboard
+        </Button>
+        <Button
+          variant="outline"
+          onClick={() => {
+            reset();
+            router.push("/plan");
+          }}
+        >
+          Plan another trip
+        </Button>
+      </div>
     </motion.div>
   );
 }

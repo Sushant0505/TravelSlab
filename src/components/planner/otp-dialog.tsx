@@ -12,12 +12,14 @@ export function OtpDialog({
   mobile,
   open,
   onClose,
-  onVerified,
+  onSubmit,
 }: {
   mobile: string;
   open: boolean;
   onClose: () => void;
-  onVerified: (code: string) => void;
+  /** Called with the entered code. Return {ok:false,error} to show an error;
+   *  on ok the caller navigates away (dialog stays in its loading state). */
+  onSubmit: (code: string) => Promise<{ ok: boolean; error?: string }>;
 }) {
   const [mockOtp, setMockOtp] = useState("");
   const [code, setCode] = useState("");
@@ -65,20 +67,12 @@ export function OtpDialog({
     if (code.length !== 6 || verifying) return;
     setVerifying(true);
     setError("");
-    try {
-      const r = await fetch("/api/otp/verify", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mobile, otp: code }),
-      });
-      const d = await r.json().catch(() => ({}));
-      if (!r.ok || !d.ok) throw new Error(d?.error ?? "Incorrect code");
-      onVerified(code);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Incorrect code");
-    } finally {
+    const res = await onSubmit(code);
+    if (!res.ok) {
+      setError(res.error ?? "Incorrect code");
       setVerifying(false);
     }
+    // On success the caller navigates away; keep the spinner until it does.
   }
 
   return (

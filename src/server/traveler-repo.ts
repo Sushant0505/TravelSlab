@@ -1,16 +1,13 @@
 /**
- * Traveler accounts (login/signup) + traveler-scoped dashboard data.
+ * Traveler accounts (passwordless, OTP-based) + traveler-scoped dashboard data.
  *
- * Prisma/Postgres when configured (see `withDb`), else an in-memory fallback so
- * the flow works with zero infrastructure. Travelers are the same `Traveler`
- * rows that leads attach to — signing up sets a `passwordHash` on the row
- * (creating one if the email is new), so a traveler's submitted trips line up
- * with their account.
+ * Prisma/Postgres when configured (see `withDb`), else an in-memory fallback.
+ * Accounts are created automatically when a trip is submitted (post-OTP), and
+ * are deduplicated by email OR mobile. There are no passwords.
  */
 
 import { withDb } from "@/lib/persistence";
 import { getSlab } from "@/lib/slabs";
-import { hashPassword, verifyPassword } from "@/lib/password";
 
 export interface TravelerAccount {
   id: string;
@@ -33,17 +30,13 @@ export interface TravelerTrip {
   createdAtISO: string;
   /** How many agencies have unlocked (purchased) this lead. */
   unlocks: number;
-  unlockedBy: { agency: string; atISO: string }[];
+  /** Timestamps of each unlock. Agency identity is intentionally NOT exposed. */
+  unlockedBy: { atISO: string }[];
 }
-
-type Result =
-  | { ok: true; account: TravelerAccount }
-  | { ok: false; error: string };
 
 // --- in-memory fallback -----------------------------------------------------
 
 interface MemTraveler extends TravelerAccount {
-  passwordHash: string;
   status: "ACTIVE" | "BLOCKED";
 }
 const g = globalThis as unknown as { __travelerAccounts?: MemTraveler[] };
@@ -53,74 +46,72 @@ function toAccount(t: { id: string; name: string; email: string; mobile: string 
   return { id: t.id, name: t.name, email: t.email, mobile: t.mobile };
 }
 
-// --- auth -------------------------------------------------------------------
+// --- lookup / create --------------------------------------------------------
 
-export function registerTraveler(input: {
-  name: string;
-  email: string;
-  mobile: string;
-  password: string;
-}): Promise<Result> {
-  const email = input.email.trim().toLowerCase();
+/** Find an account by email (case-insensitive) OR mobile. */
+export function findTravelerByIdentifier(identifier: string): Promise<TravelerAccount | null> {
+  const raw = identifier.trim();
+  const email = raw.toLowerCase();
   return withDb(
     async (db) => {
-      const existing = await db.traveler.findFirst({
-        where: { email: { equals: email, mode: "insensitive" } },
-        orderBy: { createdAt: "desc" },
+      const t = await db.traveler.findFirst({
+        where: { OR: [{ email: { equals: email, mode: "insensitive" } }, { mobile: raw }] },
+        orderBy: { createdAt: "asc" },
       });
-      if (existing?.passwordHash) {
-        return { ok: false, error: "An account with this email already exists. Please log in." };
-      }
-      const passwordHash = hashPassword(input.password);
-      const t = existing
-        ? await db.traveler.update({
-            where: { id: existing.id },
-            data: { passwordHash, name: input.name, mobile: input.mobile },
-          })
-        : await db.traveler.create({
-            data: { name: input.name, email, mobile: input.mobile, passwordHash },
-          });
-      return { ok: true, account: toAccount(t) };
+      return t ? toAccount(t) : null;
     },
     () => {
-      if (mem.some((t) => t.email === email)) {
-        return { ok: false, error: "An account with this email already exists. Please log in." };
-      }
-      const t: MemTraveler = {
-        id: `traveler_${Date.now().toString(36)}`,
-        name: input.name,
-        email,
-        mobile: input.mobile,
-        passwordHash: hashPassword(input.password),
-        status: "ACTIVE",
-      };
-      mem.unshift(t);
-      return { ok: true, account: toAccount(t) };
+      const t = mem.find((x) => x.email === email || x.mobile === raw);
+      return t ? toAccount(t) : null;
     },
   );
 }
 
-export function loginTraveler(input: { email: string; password: string }): Promise<Result> {
+/**
+ * Find an account by email OR mobile, else create one — the auto-account step of
+ * trip submission. Dedupes so the same email/mobile never makes two accounts.
+ */
+export function findOrCreateTraveler(input: {
+  name: string;
+  email: string;
+  mobile: string;
+}): Promise<TravelerAccount> {
   const email = input.email.trim().toLowerCase();
+  const mobile = input.mobile.trim();
   return withDb(
     async (db) => {
-      const t = await db.traveler.findFirst({
-        where: { email: { equals: email, mode: "insensitive" }, passwordHash: { not: null } },
-        orderBy: { createdAt: "desc" },
+      const existing = await db.traveler.findFirst({
+        where: { OR: [{ email: { equals: email, mode: "insensitive" } }, { mobile }] },
+        orderBy: { createdAt: "asc" },
       });
-      if (!t || !verifyPassword(input.password, t.passwordHash)) {
-        return { ok: false, error: "Invalid email or password" };
+      if (existing) {
+        const updated = await db.traveler.update({
+          where: { id: existing.id },
+          data: { name: input.name, mobile },
+        });
+        return toAccount(updated);
       }
-      if (t.status === "BLOCKED") return { ok: false, error: "Your account is blocked. Contact support." };
-      return { ok: true, account: toAccount(t) };
+      const created = await db.traveler.create({
+        data: { name: input.name, email, mobile },
+      });
+      return toAccount(created);
     },
     () => {
-      const t = mem.find((x) => x.email === email);
-      if (!t || !verifyPassword(input.password, t.passwordHash)) {
-        return { ok: false, error: "Invalid email or password" };
+      const found = mem.find((x) => x.email === email || x.mobile === mobile);
+      if (found) {
+        found.name = input.name;
+        found.mobile = mobile;
+        return toAccount(found);
       }
-      if (t.status === "BLOCKED") return { ok: false, error: "Your account is blocked. Contact support." };
-      return { ok: true, account: toAccount(t) };
+      const created: MemTraveler = {
+        id: `traveler_${Date.now().toString(36)}`,
+        name: input.name,
+        email,
+        mobile,
+        status: "ACTIVE",
+      };
+      mem.unshift(created);
+      return toAccount(created);
     },
   );
 }
@@ -170,7 +161,7 @@ export function listTravelerTrips(travelerId: string): Promise<TravelerTrip[]> {
         orderBy: { createdAt: "desc" },
         include: {
           purchases: {
-            select: { createdAt: true, agency: { select: { name: true } } },
+            select: { createdAt: true }, // agency identity deliberately excluded
             orderBy: { createdAt: "desc" },
           },
         },
@@ -188,10 +179,7 @@ export function listTravelerTrips(travelerId: string): Promise<TravelerTrip[]> {
         status: r.status,
         createdAtISO: r.createdAt.toISOString(),
         unlocks: r.purchases.length,
-        unlockedBy: r.purchases.map((p) => ({
-          agency: p.agency?.name ?? "An agency",
-          atISO: p.createdAt.toISOString(),
-        })),
+        unlockedBy: r.purchases.map((p) => ({ atISO: p.createdAt.toISOString() })),
       }));
     },
     // Memory-mode travelers have no attached leads.

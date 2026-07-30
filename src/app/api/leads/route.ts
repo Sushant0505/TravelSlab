@@ -4,7 +4,14 @@ import { assignSlab } from "@/lib/slabs";
 import { checkLeadRateLimit } from "@/lib/rate-limit";
 import { notifyNewLead, notifySuspicious } from "@/server/notify-repo";
 import { appendLead } from "@/server/lead-repo";
-// import { prisma } from "@/lib/db"; // enable once your DB is provisioned
+import { findOrCreateTraveler, getTravelerAccount } from "@/server/traveler-repo";
+import { verifyOtp } from "@/lib/otp";
+import {
+  getSession,
+  signSession,
+  SESSION_COOKIE,
+  sessionCookieOptions,
+} from "@/lib/auth";
 
 export const runtime = "nodejs";
 
@@ -22,6 +29,14 @@ function clientIp(req: NextRequest): string {
   return req.headers.get("x-real-ip") ?? "0.0.0.0";
 }
 
+/**
+ * POST /api/leads — finalize a trip request.
+ *
+ * OTP-gated + passwordless: verifies the OTP for the mobile FIRST; only then
+ * auto-creates (or reuses) the traveler account, creates the lead, and logs the
+ * traveler in (sets the session cookie). If the OTP is wrong/expired, no lead is
+ * created.
+ */
 export async function POST(req: NextRequest) {
   let body: unknown;
   try {
@@ -52,32 +67,46 @@ export async function POST(req: NextRequest) {
       `Lead rate limit hit for mobile ${input.mobile} / IP ${ip}.`,
     );
     return NextResponse.json(
-      {
-        error: "Daily lead limit reached. Please try again tomorrow.",
-        limit: rate.limit,
-      },
+      { error: "Daily lead limit reached. Please try again tomorrow.", limit: rate.limit },
       { status: 429 },
     );
   }
 
+  // --- Verify the OTP BEFORE creating anything (mobile ownership check) -------
+  const otp = await verifyOtp(input.mobile, input.otp);
+  if (!otp.ok) {
+    return NextResponse.json(
+      { error: otp.error ?? "OTP verification failed. Please resend and try again." },
+      { status: 401 },
+    );
+  }
+
+  // --- Auto-create / reuse the traveler account (dedupe by email OR mobile) ---
+  const session = await getSession();
+  let account =
+    session?.role === "TRAVELER" ? await getTravelerAccount(session.id) : null;
+  if (!account) {
+    account = await findOrCreateTraveler({
+      name: input.name,
+      email: input.email,
+      mobile: input.mobile,
+    });
+  }
+
   // --- Categorize + score ---
   const perHead =
-    input.travelers > 0
-      ? Math.round(input.budget / input.travelers)
-      : input.budget;
+    input.travelers > 0 ? Math.round(input.budget / input.travelers) : input.budget;
   const slab = assignSlab(perHead);
-  const otpVerified = Boolean(input.otp); // wire real OTP verification here
   const leadScore = scoreLead({
     budget: input.budget,
     travelers: input.travelers,
     travelDate: input.travelDate,
     preferences: input.preferences,
-    otpVerified,
+    otpVerified: true,
   });
   const reference = makeReference();
 
-  // --- Persist into the marketplace so agencies can actually see + buy it ---
-  // Uses Prisma when a DB is configured, else an in-memory store (see repo).
+  // --- Persist the lead, linked to the account so it shows in their dashboard -
   await appendLead({
     reference,
     name: input.name,
@@ -93,11 +122,11 @@ export async function POST(req: NextRequest) {
     perHead,
     slab: slab.id,
     leadScore,
-    otpVerified,
+    otpVerified: true,
+    travelerId: account.id,
   });
 
   // --- Fan out: notify ONLY agencies subscribed to this lead's slab ---
-  // e.g. ₹7,500/head -> s5_10k -> only s5_10k subscribers are alerted.
   const fanout = await notifyNewLead({
     slab: slab.id,
     reference,
@@ -105,7 +134,15 @@ export async function POST(req: NextRequest) {
     budgetRange: slab.label,
   });
 
-  return NextResponse.json(
+  // --- Log the traveler in (passwordless) ------------------------------------
+  const token = await signSession({
+    role: "TRAVELER",
+    id: account.id,
+    name: account.name,
+    email: account.email,
+  });
+
+  const res = NextResponse.json(
     {
       ok: true,
       reference,
@@ -114,7 +151,10 @@ export async function POST(req: NextRequest) {
       leadScore,
       remaining: rate.remaining,
       agenciesNotified: fanout.agenciesNotified,
+      loggedIn: true,
     },
     { status: 201 },
   );
+  res.cookies.set(SESSION_COOKIE, token, sessionCookieOptions);
+  return res;
 }

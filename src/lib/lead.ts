@@ -15,8 +15,8 @@ export const leadSchema = z.object({
   travelDate: z.string().min(1),
   tripType: z.string().min(1),
   preferences: z.string().max(2000).optional().default(""),
-  // OTP flow
-  otp: z.string().length(6).optional(),
+  // OTP flow — required: the mobile must be verified before a lead is created.
+  otp: z.string().length(6, "Enter the 6-digit verification code"),
   // Anti-abuse signals collected client-side.
   fingerprint: z.string().optional(),
 });

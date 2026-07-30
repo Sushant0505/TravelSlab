@@ -7,7 +7,6 @@ import { PageTitle, DashCard, EmptyState, relativeTime } from "@/components/dash
 export const metadata = { title: "Lead Activity" };
 
 interface Event {
-  agency: string;
   destination: string;
   reference: string;
   atISO: string;
@@ -19,10 +18,10 @@ export default async function LeadActivityPage() {
   const trips = await listTravelerTrips(session.id);
 
   // Flatten every agency unlock across all trips into a single timeline.
+  // Agencies stay anonymous until they actually contact the traveler.
   const events: Event[] = trips
     .flatMap((t) =>
       t.unlockedBy.map((u) => ({
-        agency: u.agency,
         destination: t.destination,
         reference: t.reference,
         atISO: u.atISO,
@@ -57,8 +56,8 @@ export default async function LeadActivityPage() {
               </span>
               <div className="min-w-0 flex-1">
                 <p className="text-sm text-slate-800">
-                  <span className="font-semibold">{e.agency}</span> unlocked your{" "}
-                  <span className="font-semibold">{e.destination}</span> trip
+                  <span className="font-semibold">A verified agency</span> unlocked
+                  your <span className="font-semibold">{e.destination}</span> trip
                 </p>
                 <p className="text-xs text-slate-400">
                   {e.reference} · they may reach out with a quote soon

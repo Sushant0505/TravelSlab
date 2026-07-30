@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Plus, Luggage, Building2, CalendarClock, Bell, ArrowRight, MapPin } from "lucide-react";
+import { Plus, Luggage, Building2, Activity, Bell, ArrowRight, MapPin } from "lucide-react";
 import { getSession } from "@/lib/auth";
 import { listTravelerTrips } from "@/server/traveler-repo";
 import { unreadTraveler } from "@/server/notify-repo";
@@ -16,15 +16,15 @@ export default async function DashboardOverview() {
   ]);
 
   const totalUnlocks = trips.reduce((s, t) => s + t.unlocks, 0);
-  const upcoming = trips
-    .filter((t) => new Date(t.travelDateISO).getTime() > Date.now())
-    .sort((a, b) => +new Date(a.travelDateISO) - +new Date(b.travelDateISO))[0];
+  const activeLeads = trips.filter(
+    (t) => t.status === "AVAILABLE" || t.status === "VERIFIED" || t.status === "NEW",
+  ).length;
   const firstName = session.name.trim().split(/\s+/)[0] || "traveler";
 
   const stats = [
     { icon: Luggage, label: "Trips submitted", value: String(trips.length), tone: "text-primary bg-primary/10" },
+    { icon: Activity, label: "Active leads", value: String(activeLeads), tone: "text-sky-600 bg-sky-50" },
     { icon: Building2, label: "Agencies interested", value: String(totalUnlocks), tone: "text-emerald-600 bg-emerald-50" },
-    { icon: CalendarClock, label: "Next departure", value: upcoming ? formatDate(upcoming.travelDateISO) : "—", tone: "text-violet-600 bg-violet-50" },
     { icon: Bell, label: "Unread alerts", value: String(unread), tone: "text-rose-600 bg-rose-50" },
   ];
 

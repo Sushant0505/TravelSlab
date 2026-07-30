@@ -10,9 +10,9 @@
  * `withDb`), and otherwise falls back to the in-memory demo data below.
  */
 
-import { assignSlab, getSlab, isPremiumSlab, type SlabId } from "@/lib/slabs";
+import { assignSlab, getSlab, type SlabId } from "@/lib/slabs";
 import { withDb } from "@/lib/persistence";
-import { memGetPrice } from "./pricing-repo";
+import { resolveTierDb, resolveTierMemory } from "./tier-repo";
 import {
   toMarketplaceLead,
   revealContact,
@@ -103,6 +103,7 @@ function generate(count: number): FullLead[] {
       budget,
       perHead,
       slab: slab.id,
+      slabLabel: slab.label,
       price: slab.leadPrice,
       leadScore: Math.min(100, 40 + (otpVerified ? 25 : 0) + Math.floor(rng() * 30)),
       statusNote:
@@ -134,6 +135,7 @@ function rowToFullLead(row: LeadWithRelations): FullLead {
     reference: row.reference,
     status: row.status,
     statusNote: row.statusNote ?? "",
+    slabLabel: row.slabLabel ?? getSlab(row.slab).label,
     purchasedBy: row.purchases?.map((p) => p.agencyId) ?? [],
     name: row.traveler?.name ?? "",
     email: row.traveler?.email ?? "",
@@ -414,13 +416,13 @@ export function appendLead(input: NewLeadInput): Promise<FullLead> {
           }));
       }
 
-      // ₹50k+ leads are auto-hidden for admin vetting before they go live.
-      // Price uses the admin's slab-pricing override when one is set.
-      const override = await db.slabPricing.findUnique({ where: { slab: input.slab } });
+      // Price, auto-hide and label come from the admin's slab tier for this
+      // per-traveller budget (custom ranges), not a fixed table.
+      const tier = await resolveTierDb(db, input.perHead);
       const lead = await db.lead.create({
         data: {
           reference: input.reference,
-          status: leadStatusOnCreate(input),
+          status: leadStatusOnCreate(input, tier.autoHide),
           destination: input.destination,
           departureCity: input.departureCity,
           travelers: input.travelers,
@@ -430,7 +432,8 @@ export function appendLead(input: NewLeadInput): Promise<FullLead> {
           tripType: input.tripType,
           preferences: input.preferences || null,
           slab: input.slab,
-          price: override?.leadPrice ?? getSlab(input.slab).leadPrice,
+          slabLabel: tier.label,
+          price: tier.leadPrice,
           leadScore: input.leadScore,
           otpVerified: input.otpVerified,
           travelerId: traveler.id,
@@ -444,11 +447,13 @@ export function appendLead(input: NewLeadInput): Promise<FullLead> {
 }
 
 function appendLeadMemory(input: NewLeadInput): FullLead {
+  const tier = resolveTierMemory(input.perHead);
   const lead: FullLead = {
     id: `lead_${Date.now().toString(36)}`,
     reference: input.reference,
-    status: leadStatusOnCreate(input),
+    status: leadStatusOnCreate(input, tier.autoHide),
     statusNote: "",
+    slabLabel: tier.label,
     purchasedBy: [],
     name: input.name,
     email: input.email,
@@ -461,7 +466,7 @@ function appendLeadMemory(input: NewLeadInput): FullLead {
     budget: input.budget,
     perHead: input.perHead,
     slab: input.slab,
-    price: memGetPrice(input.slab),
+    price: tier.leadPrice,
     leadScore: input.leadScore,
     otpVerified: input.otpVerified,
     createdAtISO: new Date().toISOString(),
@@ -471,11 +476,14 @@ function appendLeadMemory(input: NewLeadInput): FullLead {
 }
 
 /**
- * Status a freshly submitted lead gets: premium (₹50k+) slabs are auto-hidden
- * for admin review; otherwise verified leads go live and unverified wait.
+ * Status a freshly submitted lead gets: slabs the admin marks as auto-hide are
+ * hidden for review; otherwise verified leads go live and unverified wait.
  */
-function leadStatusOnCreate(input: NewLeadInput): FullLead["status"] {
-  if (isPremiumSlab(input.slab)) return "HIDDEN";
+function leadStatusOnCreate(
+  input: NewLeadInput,
+  autoHide: boolean,
+): FullLead["status"] {
+  if (autoHide) return "HIDDEN";
   return input.otpVerified ? "AVAILABLE" : "NEW";
 }
 
@@ -495,6 +503,7 @@ export interface AdminLeadRow {
   budget: number;
   perHead: number;
   slab: SlabId;
+  slabLabel: string;
   price: number;
   status: FullLead["status"];
   /** Admin reason when flagged as fraud / hidden. */
@@ -518,6 +527,7 @@ function toAdminRow(l: FullLead): AdminLeadRow {
     budget: l.budget,
     perHead: l.perHead,
     slab: l.slab,
+    slabLabel: l.slabLabel,
     price: l.price,
     status: l.status,
     statusNote: l.statusNote,

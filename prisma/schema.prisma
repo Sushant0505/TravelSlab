@@ -42,6 +42,7 @@ model Lead {
   price         Int
   leadScore     Int        @default(0)
   statusNote    String? // admin reason when flagged as fraud / hidden
+  slabLabel     String? // label of the (possibly custom) slab tier at creation
   otpVerified   Boolean    @default(false)
   ipAddress     String?
   fingerprint   String?
@@ -136,7 +137,27 @@ model Admin {
 model SlabPricing {
   slab      SlabId   @id
   leadPrice Int
+  // When set, overrides the code default for auto-hiding new leads in this slab.
+  // null => fall back to the built-in default (premium ₹50k+ slabs).
+  autoHide  Boolean?
   updatedAt DateTime @updatedAt
+}
+
+/// Admin-managed budget slab ranges (per-traveller). Replaces the fixed slab
+/// set for lead pricing, auto-hide and labelling. `maxPerHead` null = no upper
+/// bound. The agency marketplace still uses the built-in bands.
+model SlabTier {
+  id         String   @id @default(cuid())
+  label      String
+  minPerHead Int
+  maxPerHead Int? // null = no upper bound (top tier)
+  leadPrice  Int
+  autoHide   Boolean  @default(false)
+  order      Int      @default(0)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([order])
 }
 
 model OtpCode {

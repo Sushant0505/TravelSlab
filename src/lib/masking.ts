@@ -31,6 +31,8 @@ export interface FullLead {
   budget: number;
   perHead: number;
   slab: SlabId;
+  /** Label of the (possibly custom) slab tier captured at creation. */
+  slabLabel: string;
   price: number;
   leadScore: number;
   otpVerified: boolean;

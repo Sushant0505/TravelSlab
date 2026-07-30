@@ -225,7 +225,7 @@ export function listTravelerTrips(travelerId: string): Promise<TravelerTrip[]> {
         travelers: r.travelers,
         budget: r.budget,
         perHead: r.perHead,
-        slabLabel: getSlab(r.slab).label,
+        slabLabel: r.slabLabel ?? getSlab(r.slab).label,
         status: r.status,
         createdAtISO: r.createdAt.toISOString(),
         unlocks: r.purchases.length,

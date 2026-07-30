@@ -107,7 +107,7 @@ export async function POST(req: NextRequest) {
   const reference = makeReference();
 
   // --- Persist the lead, linked to the account so it shows in their dashboard -
-  await appendLead({
+  const created = await appendLead({
     reference,
     name: input.name,
     email: input.email,
@@ -146,7 +146,8 @@ export async function POST(req: NextRequest) {
     {
       ok: true,
       reference,
-      slab: { id: slab.id, label: slab.label, price: slab.leadPrice },
+      // Reflect the admin's slab tier (custom ranges), not the fixed band.
+      slab: { id: created.slab, label: created.slabLabel, price: created.price },
       perHead,
       leadScore,
       remaining: rate.remaining,

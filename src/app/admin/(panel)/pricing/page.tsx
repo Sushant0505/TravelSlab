@@ -1,5 +1,5 @@
-import { SlabPricingManager } from "@/components/admin/slab-pricing-manager";
+import { SlabTiersManager } from "@/components/admin/slab-tiers-manager";
 
 export default function AdminPricingPage() {
-  return <SlabPricingManager />;
+  return <SlabTiersManager />;
 }

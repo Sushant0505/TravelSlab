@@ -7,7 +7,6 @@ import { EyeOff, Eye, ShieldX, Trash2, Loader2, MapPin, Phone, Mail, Info } from
 import { AdminCard, PageHeading, StatusBadge, ActionButton } from "./ui";
 import { LeadFraudDialog } from "./lead-fraud-dialog";
 import { formatINR } from "@/lib/utils";
-import { getSlab } from "@/lib/slabs";
 import type { AdminLeadRow } from "@/server/lead-repo";
 import type { LeadStats } from "@/server/lead-repo";
 
@@ -145,7 +144,7 @@ export function LeadsTable() {
                     </td>
                     <td className="px-4 py-3 font-medium text-white">{l.destination}</td>
                     <td className="px-4 py-3 text-zinc-300">{formatINR(l.budget)}</td>
-                    <td className="px-4 py-3 text-zinc-400">{getSlab(l.slab).label}</td>
+                    <td className="px-4 py-3 text-zinc-400">{l.slabLabel}</td>
                     <td className="px-4 py-3">
                       <span className="font-semibold text-white">{l.leadScore}</span>
                     </td>

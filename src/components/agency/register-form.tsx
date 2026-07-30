@@ -9,19 +9,21 @@ import {
   Mail,
   Phone,
   FileText,
-  Upload,
   Loader2,
   CheckCircle2,
   ShieldCheck,
 } from "lucide-react";
+import { KycUploader } from "./kyc-uploader";
+import { CityAutocomplete } from "@/components/planner/city-autocomplete";
+import type { KycDocInput } from "@/lib/kyc";
 
 interface Form {
   name: string;
   ownerName: string;
   email: string;
   phone: string;
+  city: string;
   gstNumber: string;
-  documentsUrl: string;
 }
 
 const empty: Form = {
@@ -29,12 +31,13 @@ const empty: Form = {
   ownerName: "",
   email: "",
   phone: "",
+  city: "",
   gstNumber: "",
-  documentsUrl: "",
 };
 
 export function RegisterForm() {
   const [form, setForm] = useState<Form>(empty);
+  const [docs, setDocs] = useState<KycDocInput[]>([]);
   const [status, setStatus] = useState<"idle" | "sending" | "done" | "error">(
     "idle",
   );
@@ -50,6 +53,7 @@ export function RegisterForm() {
     if (form.ownerName.trim().length < 2) e.ownerName = "Enter the owner name";
     if (!/^\S+@\S+\.\S+$/.test(form.email)) e.email = "Valid email required";
     if (!/^[6-9]\d{9}$/.test(form.phone)) e.phone = "Valid 10-digit phone";
+    if (form.city.trim().length < 2) e.city = "Enter your city";
     setErrors(e);
     return Object.keys(e).length === 0;
   }
@@ -65,7 +69,7 @@ export function RegisterForm() {
         body: JSON.stringify({
           ...form,
           gstNumber: form.gstNumber || undefined,
-          documentsUrl: form.documentsUrl || undefined,
+          documents: docs,
         }),
       });
       if (!res.ok) throw new Error();
@@ -145,6 +149,13 @@ export function RegisterForm() {
             placeholder="9876543210"
           />
         </div>
+        <CityAutocomplete
+          label="City"
+          value={form.city}
+          onChange={(v) => set({ city: v })}
+          error={errors.city}
+          placeholder="e.g. Dehradun, Delhi, Mumbai"
+        />
         <Field
           label="GST number (optional)"
           icon={<FileText className="h-4 w-4" />}
@@ -157,26 +168,11 @@ export function RegisterForm() {
           <span className="mb-1.5 block text-sm font-medium text-slate-700">
             KYC documents
           </span>
-          <label className="flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-6 text-sm text-slate-500 hover:border-indigo-400">
-            <Upload className="h-4 w-4" />
-            Upload registration / GST certificate
-            <input
-              type="file"
-              className="hidden"
-              onChange={(e) =>
-                set({
-                  documentsUrl: e.target.files?.[0]
-                    ? `uploaded://${e.target.files[0].name}`
-                    : "",
-                })
-              }
-            />
-          </label>
-          {form.documentsUrl && (
-            <p className="mt-1 text-xs text-emerald-600">
-              Attached: {form.documentsUrl.replace("uploaded://", "")}
-            </p>
-          )}
+          <p className="mb-2 text-xs text-slate-400">
+            Upload your GST certificate, PAN and business registration so an
+            admin can verify your agency.
+          </p>
+          <KycUploader value={docs} onChange={setDocs} />
         </div>
 
         {status === "error" && (

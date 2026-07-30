@@ -11,6 +11,7 @@ import {
   LifeBuoy,
   Building2,
   Bell,
+  ShieldCheck,
   LogOut,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -24,6 +25,7 @@ const NAV = [
   { label: "Notifications", href: "/agencies/notifications", icon: Bell },
   { label: "My Purchases", href: "/agencies/purchases", icon: ShoppingBag },
   { label: "Invoices", href: "/agencies/purchases#invoices", icon: Receipt },
+  { label: "Verification", href: "/agencies/kyc", icon: ShieldCheck },
 ];
 const NAV_SECONDARY = [
   { label: "Settings", href: "#", icon: Settings },

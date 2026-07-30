@@ -7,6 +7,7 @@
 
 import { withDb } from "@/lib/persistence";
 import { leadStats, soldLeadEvents } from "./lead-repo";
+import type { KycDocMeta, KycDocInput } from "@/lib/kyc";
 
 // --- deterministic RNG (shared style with lead-repo) ------------------------
 function mulberry32(seed: number) {
@@ -29,10 +30,13 @@ export interface AdminAgency {
   email: string;
   phone: string;
   gstNumber: string;
+  city: string;
   status: AgencyStatus;
   purchases: number;
   spend: number;
   joinedISO: string;
+  /** KYC files the agency uploaded (metadata only — no data URLs). */
+  documents: KycDocMeta[];
 }
 
 export interface AdminUser {
@@ -52,6 +56,10 @@ const AGENCY_NAMES = [
   "Metro Journeys", "Elephant Route", "Zenith Vacations", "Compass Cabs & Tours",
 ];
 const OWNERS = ["Rahul Mehta", "Sneha Kapoor", "Imran Ali", "Divya Nair", "Karan Shah", "Pooja Rao"];
+const AGENCY_CITIES = [
+  "Delhi", "Mumbai", "Bengaluru", "Dehradun", "Jaipur", "Kolkata",
+  "Pune", "Hyderabad", "Chennai", "Ahmedabad", "Chandigarh", "Goa (Panaji)",
+];
 const USER_FIRST = ["Ananya", "Rohan", "Priya", "Arjun", "Neha", "Vikram", "Sara", "Kabir", "Isha", "Dev"];
 const USER_LAST = ["Sharma", "Iyer", "Nair", "Gupta", "Reddy", "Khan", "Bose", "Menon"];
 const AGENCY_STATUSES: AgencyStatus[] = ["APPROVED", "APPROVED", "APPROVED", "PENDING", "SUSPENDED", "BLOCKED"];
@@ -73,10 +81,12 @@ function seedAgencies(): AdminAgency[] {
       email: `${name.toLowerCase().replace(/[^a-z]/g, "")}@travel.in`,
       phone: `98${(10000000 + Math.floor(rng() * 89999999)).toString().slice(0, 8)}`,
       gstNumber: `2${(2 + i).toString()}ABCDE${1000 + i}F1Z5`,
+      city: pick(rng, AGENCY_CITIES),
       status,
       purchases,
       spend: purchases * (99 + Math.floor(rng() * 300)),
       joinedISO: new Date(Date.now() - Math.floor(rng() * 240) * 86_400_000).toISOString(),
+      documents: [],
     };
   });
 }
@@ -100,12 +110,51 @@ function seedUsers(): AdminUser[] {
   });
 }
 
+interface StoredDoc extends KycDocMeta {
+  dataUrl: string;
+}
 const g = globalThis as unknown as {
   __agencies?: AdminAgency[];
   __users?: AdminUser[];
+  __agencyDocs?: Map<string, StoredDoc[]>;
 };
 const agencies = g.__agencies ?? (g.__agencies = seedAgencies());
 const users = g.__users ?? (g.__users = seedUsers());
+// In-memory KYC store (source of truth in fallback mode), keyed by agency id.
+const agencyDocs = g.__agencyDocs ?? (g.__agencyDocs = new Map<string, StoredDoc[]>());
+
+function memDocMeta(agencyId: string): KycDocMeta[] {
+  return (agencyDocs.get(agencyId) ?? []).map(({ dataUrl: _d, ...m }) => m);
+}
+
+// Prisma `select` for document metadata — deliberately excludes `dataUrl` so
+// list/overview queries never pull megabytes of base64.
+const DOC_META_SELECT = {
+  id: true,
+  label: true,
+  fileName: true,
+  mimeType: true,
+  size: true,
+  createdAt: true,
+} as const;
+
+function docRowToMeta(d: {
+  id: string;
+  label: string;
+  fileName: string;
+  mimeType: string;
+  size: number;
+  createdAt: Date;
+}): KycDocMeta {
+  return {
+    id: d.id,
+    label: d.label,
+    fileName: d.fileName,
+    mimeType: d.mimeType,
+    size: d.size,
+    uploadedAtISO: d.createdAt.toISOString(),
+  };
+}
 
 // --- Agencies ---------------------------------------------------------------
 
@@ -114,11 +163,18 @@ export function adminListAgencies(): Promise<AdminAgency[]> {
     async (db) => {
       const rows = await db.agency.findMany({
         orderBy: { createdAt: "desc" },
-        include: { purchases: true },
+        include: {
+          purchases: true,
+          documents: { select: DOC_META_SELECT, orderBy: { createdAt: "asc" } },
+        },
       });
       return rows.map(agencyToAdmin);
     },
-    () => agencies.slice().sort((a, b) => b.joinedISO.localeCompare(a.joinedISO)),
+    () =>
+      agencies
+        .slice()
+        .sort((a, b) => b.joinedISO.localeCompare(a.joinedISO))
+        .map((a) => ({ ...a, documents: memDocMeta(a.id) })),
   );
 }
 
@@ -139,10 +195,19 @@ export function findAgencyByEmail(email: string): Promise<AdminAgency | undefine
 export function getAgencyById(id: string): Promise<AdminAgency | undefined> {
   return withDb(
     async (db) => {
-      const a = await db.agency.findUnique({ where: { id }, include: { purchases: true } });
+      const a = await db.agency.findUnique({
+        where: { id },
+        include: {
+          purchases: true,
+          documents: { select: DOC_META_SELECT, orderBy: { createdAt: "asc" } },
+        },
+      });
       return a ? agencyToAdmin(a) : undefined;
     },
-    () => agencies.find((a) => a.id === id),
+    () => {
+      const a = agencies.find((x) => x.id === id);
+      return a ? { ...a, documents: memDocMeta(a.id) } : undefined;
+    },
   );
 }
 
@@ -150,18 +215,27 @@ export function getAgencyById(id: string): Promise<AdminAgency | undefined> {
  * Persist a freshly registered agency as PENDING. Idempotent on email —
  * re-submitting the same email returns the existing record.
  */
-export function adminCreateAgency(input: {
+export interface CreateAgencyInput {
   name: string;
   ownerName: string;
   email: string;
   phone: string;
   gstNumber?: string;
-}): Promise<{ agency: AdminAgency; created: boolean }> {
+  city?: string;
+  documents?: KycDocInput[];
+}
+
+export function adminCreateAgency(
+  input: CreateAgencyInput,
+): Promise<{ agency: AdminAgency; created: boolean }> {
   return withDb(
     async (db) => {
       const existing = await db.agency.findFirst({
         where: { email: { equals: input.email, mode: "insensitive" } },
-        include: { purchases: true },
+        include: {
+          purchases: true,
+          documents: { select: DOC_META_SELECT, orderBy: { createdAt: "asc" } },
+        },
       });
       if (existing) return { agency: agencyToAdmin(existing), created: false };
 
@@ -172,10 +246,17 @@ export function adminCreateAgency(input: {
           email: input.email,
           phone: input.phone,
           gstNumber: input.gstNumber ?? null,
+          city: input.city ?? null,
           passwordHash: "",
           status: "PENDING",
+          documents: input.documents?.length
+            ? { create: input.documents.map(toDocCreate) }
+            : undefined,
         },
-        include: { purchases: true },
+        include: {
+          purchases: true,
+          documents: { select: DOC_META_SELECT, orderBy: { createdAt: "asc" } },
+        },
       });
       return { agency: agencyToAdmin(created), created: true };
     },
@@ -183,32 +264,146 @@ export function adminCreateAgency(input: {
   );
 }
 
-function adminCreateAgencyMemory(input: {
-  name: string;
-  ownerName: string;
-  email: string;
-  phone: string;
-  gstNumber?: string;
-}): { agency: AdminAgency; created: boolean } {
+function toDocCreate(d: KycDocInput) {
+  return {
+    label: d.label,
+    fileName: d.fileName,
+    mimeType: d.mimeType,
+    size: d.size,
+    dataUrl: d.dataUrl,
+  };
+}
+
+function adminCreateAgencyMemory(
+  input: CreateAgencyInput,
+): { agency: AdminAgency; created: boolean } {
   const existing = agencies.find(
     (a) => a.email.toLowerCase() === input.email.trim().toLowerCase(),
   );
-  if (existing) return { agency: existing, created: false };
+  if (existing) return { agency: { ...existing, documents: memDocMeta(existing.id) }, created: false };
 
+  const id = `agency_${Date.now().toString(36)}`;
+  if (input.documents?.length) {
+    agencyDocs.set(id, input.documents.map((d) => toStoredDoc(id, d)));
+  }
   const agency: AdminAgency = {
-    id: `agency_${Date.now().toString(36)}`,
+    id,
     name: input.name,
     ownerName: input.ownerName,
     email: input.email,
     phone: input.phone,
     gstNumber: input.gstNumber ?? "",
+    city: input.city ?? "",
     status: "PENDING",
     purchases: 0,
     spend: 0,
     joinedISO: new Date().toISOString(),
+    documents: memDocMeta(id),
   };
   agencies.unshift(agency);
   return { agency, created: true };
+}
+
+let memDocSeq = 0;
+function toStoredDoc(agencyId: string, d: KycDocInput): StoredDoc {
+  return {
+    id: `doc_${Date.now().toString(36)}_${memDocSeq++}`,
+    label: d.label,
+    fileName: d.fileName,
+    mimeType: d.mimeType,
+    size: d.size,
+    uploadedAtISO: new Date().toISOString(),
+    dataUrl: d.dataUrl,
+  };
+}
+
+// --- Agency KYC documents ---------------------------------------------------
+
+/** List one agency's document metadata (no data URLs). */
+export function listAgencyDocuments(agencyId: string): Promise<KycDocMeta[]> {
+  return withDb(
+    async (db) => {
+      const rows = await db.agencyDocument.findMany({
+        where: { agencyId },
+        select: DOC_META_SELECT,
+        orderBy: { createdAt: "asc" },
+      });
+      return rows.map(docRowToMeta);
+    },
+    () => memDocMeta(agencyId),
+  );
+}
+
+/** Append documents to an agency; returns the full updated metadata list. */
+export function addAgencyDocuments(
+  agencyId: string,
+  docs: KycDocInput[],
+): Promise<KycDocMeta[]> {
+  return withDb(
+    async (db) => {
+      if (docs.length) {
+        await db.agencyDocument.createMany({
+          data: docs.map((d) => ({ agencyId, ...toDocCreate(d) })),
+        });
+      }
+      const rows = await db.agencyDocument.findMany({
+        where: { agencyId },
+        select: DOC_META_SELECT,
+        orderBy: { createdAt: "asc" },
+      });
+      return rows.map(docRowToMeta);
+    },
+    () => {
+      const list = agencyDocs.get(agencyId) ?? [];
+      list.push(...docs.map((d) => toStoredDoc(agencyId, d)));
+      agencyDocs.set(agencyId, list);
+      return memDocMeta(agencyId);
+    },
+  );
+}
+
+/** Fetch a single document's bytes (data URL) — used by the file viewer. */
+export function getAgencyDocument(
+  agencyId: string,
+  docId: string,
+): Promise<{ fileName: string; mimeType: string; dataUrl: string } | null> {
+  return withDb(
+    async (db) => {
+      const d = await db.agencyDocument.findFirst({
+        where: { id: docId, agencyId },
+        select: { fileName: true, mimeType: true, dataUrl: true },
+      });
+      return d ?? null;
+    },
+    () => {
+      const d = (agencyDocs.get(agencyId) ?? []).find((x) => x.id === docId);
+      return d ? { fileName: d.fileName, mimeType: d.mimeType, dataUrl: d.dataUrl } : null;
+    },
+  );
+}
+
+/** Remove one document; returns true when it existed. */
+export function deleteAgencyDocument(agencyId: string, docId: string): Promise<boolean> {
+  return withDb(
+    async (db) => {
+      const res = await db.agencyDocument.deleteMany({ where: { id: docId, agencyId } });
+      return res.count > 0;
+    },
+    () => {
+      const list = agencyDocs.get(agencyId) ?? [];
+      const next = list.filter((x) => x.id !== docId);
+      agencyDocs.set(agencyId, next);
+      return next.length < list.length;
+    },
+  );
+}
+
+/** Count of verified (APPROVED) agencies — the pool "waiting" to serve a lead. */
+export function countApprovedAgencies(): Promise<number> {
+  return withDb(
+    (db) => db.agency.count({ where: { status: "APPROVED" } }),
+    () => agencies.filter((a) => a.status === "APPROVED").length,
+  );
 }
 
 export type AgencyAction = "approve" | "suspend" | "block" | "reset_password";
@@ -437,9 +632,18 @@ function agencyToAdmin(a: {
   email: string;
   phone: string;
   gstNumber: string | null;
+  city?: string | null;
   status: AgencyStatus;
   createdAt: Date;
   purchases: { amount: number }[];
+  documents?: {
+    id: string;
+    label: string;
+    fileName: string;
+    mimeType: string;
+    size: number;
+    createdAt: Date;
+  }[];
 }): AdminAgency {
   return {
     id: a.id,
@@ -448,9 +652,11 @@ function agencyToAdmin(a: {
     email: a.email,
     phone: a.phone,
     gstNumber: a.gstNumber ?? "",
+    city: a.city ?? "",
     status: a.status,
     purchases: a.purchases.length,
     spend: a.purchases.reduce((s, p) => s + p.amount, 0),
     joinedISO: a.createdAt.toISOString(),
+    documents: (a.documents ?? []).map(docRowToMeta),
   };
 }

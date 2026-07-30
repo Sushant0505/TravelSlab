@@ -2,17 +2,20 @@ import Link from "next/link";
 import { Plus, Luggage, Building2, Activity, Bell, ArrowRight, MapPin } from "lucide-react";
 import { getSession } from "@/lib/auth";
 import { listTravelerTrips } from "@/server/traveler-repo";
+import { countApprovedAgencies } from "@/server/admin-repo";
 import { unreadTraveler } from "@/server/notify-repo";
-import { DashCard, EmptyState, TripStatusPill, formatDate } from "@/components/dashboard/ui";
+import { DashCard, EmptyState, formatDate } from "@/components/dashboard/ui";
+import { AgenciesWaiting } from "@/components/dashboard/agencies-waiting";
 import { formatINR } from "@/lib/utils";
 
 export default async function DashboardOverview() {
   const session = await getSession();
   if (!session) return null;
 
-  const [trips, unread] = await Promise.all([
+  const [trips, unread, approvedAgencies] = await Promise.all([
     listTravelerTrips(session.id),
     unreadTraveler(session.id),
+    countApprovedAgencies(),
   ]);
 
   const totalUnlocks = trips.reduce((s, t) => s + t.unlocks, 0);
@@ -97,10 +100,10 @@ export default async function DashboardOverview() {
                 </p>
               </div>
               <div className="flex items-center gap-3">
-                <span className="text-xs text-slate-500">
+                <span className="hidden text-xs text-slate-500 sm:inline">
                   {t.unlocks} {t.unlocks === 1 ? "agency" : "agencies"} interested
                 </span>
-                <TripStatusPill status={t.status} />
+                <AgenciesWaiting waiting={approvedAgencies - t.unlocks} />
               </div>
             </DashCard>
           ))}

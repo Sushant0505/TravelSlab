@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { EyeOff, Eye, ShieldX, Trash2, Loader2 } from "lucide-react";
+import { EyeOff, Eye, ShieldX, Trash2, Loader2, MapPin } from "lucide-react";
 import { AdminCard, PageHeading, StatusBadge, ActionButton } from "./ui";
 import { formatINR } from "@/lib/utils";
 import { getSlab } from "@/lib/slabs";
@@ -14,6 +14,7 @@ const STATUS_TABS = ["ALL", "AVAILABLE", "NEW", "HIDDEN", "FRAUD"] as const;
 export function LeadsTable() {
   const qc = useQueryClient();
   const [tab, setTab] = useState<(typeof STATUS_TABS)[number]>("ALL");
+  const [dest, setDest] = useState("ALL");
 
   const { data, isLoading } = useQuery({
     queryKey: ["admin-leads", tab],
@@ -44,25 +45,49 @@ export function LeadsTable() {
   });
 
   const leads = data?.leads ?? [];
+  const destinations = Array.from(new Set(leads.map((l) => l.destination))).sort();
+  const visible = dest === "ALL" ? leads : leads.filter((l) => l.destination === dest);
 
   return (
     <div>
       <PageHeading title="Lead Management" subtitle="Edit, hide, assign or flag leads" />
 
-      <div className="mb-4 flex flex-wrap gap-2">
-        {STATUS_TABS.map((t) => (
-          <button
-            key={t}
-            onClick={() => setTab(t)}
-            className={`rounded-lg px-3 py-1.5 text-xs font-semibold uppercase tracking-wide transition-colors ${
-              tab === t
-                ? "bg-violet-500/20 text-violet-200 ring-1 ring-violet-500/40"
-                : "text-zinc-400 hover:bg-zinc-800"
-            }`}
-          >
-            {t}
-          </button>
-        ))}
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap gap-2">
+          {STATUS_TABS.map((t) => (
+            <button
+              key={t}
+              onClick={() => setTab(t)}
+              className={`rounded-lg px-3 py-1.5 text-xs font-semibold uppercase tracking-wide transition-colors ${
+                tab === t
+                  ? "bg-violet-500/20 text-violet-200 ring-1 ring-violet-500/40"
+                  : "text-zinc-400 hover:bg-zinc-800"
+              }`}
+            >
+              {t}
+            </button>
+          ))}
+        </div>
+        <div className="flex items-center gap-3">
+          <span className="text-xs text-zinc-500">
+            {visible.length} lead{visible.length === 1 ? "" : "s"}
+          </span>
+          <label className="flex items-center gap-2 text-xs text-zinc-400">
+            <MapPin className="h-3.5 w-3.5 text-zinc-500" />
+            <select
+              value={dest}
+              onChange={(e) => setDest(e.target.value)}
+              className="rounded-lg border border-zinc-700 bg-zinc-900 px-2.5 py-2 text-sm text-white outline-none focus:border-violet-500"
+            >
+              <option value="ALL">All destinations</option>
+              {destinations.map((d) => (
+                <option key={d} value={d}>
+                  {d}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
       </div>
 
       <AdminCard className="overflow-hidden">
@@ -86,14 +111,16 @@ export function LeadsTable() {
                     <Loader2 className="mx-auto h-5 w-5 animate-spin" />
                   </td>
                 </tr>
-              ) : leads.length === 0 ? (
+              ) : visible.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="py-16 text-center text-zinc-500">
-                    No leads in this view.
+                    {dest === "ALL"
+                      ? "No leads in this view."
+                      : `No leads for ${dest} in this view.`}
                   </td>
                 </tr>
               ) : (
-                leads.map((l) => (
+                visible.map((l) => (
                   <tr key={l.id} className="hover:bg-zinc-800/40">
                     <td className="px-4 py-3">
                       <div className="font-mono text-xs text-zinc-300">{l.reference}</div>

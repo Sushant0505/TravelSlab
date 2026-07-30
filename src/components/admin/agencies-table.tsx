@@ -1,13 +1,31 @@
 "use client";
 
+import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Check, PauseCircle, Ban, KeyRound, Loader2, Receipt } from "lucide-react";
+import { AnimatePresence } from "framer-motion";
+import {
+  Check,
+  PauseCircle,
+  Ban,
+  KeyRound,
+  Loader2,
+  Receipt,
+  FileText,
+  Search,
+  MapPin,
+} from "lucide-react";
 import { AdminCard, PageHeading, StatusBadge, ActionButton } from "./ui";
+import { AgencyDocumentsModal } from "./agency-documents-modal";
 import { formatINR } from "@/lib/utils";
 import type { AdminAgency } from "@/server/admin-repo";
 
+type SortKey = "recent" | "purchases" | "spend";
+
 export function AgenciesTable() {
   const qc = useQueryClient();
+  const [docsFor, setDocsFor] = useState<AdminAgency | null>(null);
+  const [search, setSearch] = useState("");
+  const [sort, setSort] = useState<SortKey>("recent");
 
   const { data, isLoading } = useQuery({
     queryKey: ["admin-agencies"],
@@ -36,9 +54,54 @@ export function AgenciesTable() {
 
   const agencies = data?.agencies ?? [];
 
+  const q = search.trim().toLowerCase();
+  const filtered = agencies
+    .filter(
+      (a) =>
+        !q ||
+        [a.name, a.ownerName, a.email, a.city, a.gstNumber, a.phone].some((f) =>
+          f?.toLowerCase().includes(q),
+        ),
+    )
+    .sort((a, b) => {
+      if (sort === "purchases") return b.purchases - a.purchases;
+      if (sort === "spend") return b.spend - a.spend;
+      return 0; // "recent" — API already returns newest-first
+    });
+
   return (
     <div>
       <PageHeading title="Agency Management" subtitle="Approve, suspend, block or reset agencies" />
+
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="relative w-full sm:max-w-xs">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search city, name, GST, email…"
+            className="w-full rounded-lg border border-zinc-700 bg-zinc-900 py-2 pl-9 pr-3 text-sm text-white outline-none placeholder:text-zinc-500 focus:border-violet-500"
+          />
+        </div>
+        <div className="flex items-center gap-3">
+          <span className="text-xs text-zinc-500">
+            {q ? `${filtered.length} of ${agencies.length}` : agencies.length} agenc
+            {(q ? filtered.length : agencies.length) === 1 ? "y" : "ies"}
+          </span>
+          <label className="flex items-center gap-2 text-xs text-zinc-400">
+            Sort
+            <select
+              value={sort}
+              onChange={(e) => setSort(e.target.value as SortKey)}
+              className="rounded-lg border border-zinc-700 bg-zinc-900 px-2.5 py-2 text-sm text-white outline-none focus:border-violet-500"
+            >
+              <option value="recent">Newest</option>
+              <option value="purchases">Most leads bought</option>
+              <option value="spend">Highest spend</option>
+            </select>
+          </label>
+        </div>
+      </div>
 
       <AdminCard className="overflow-hidden">
         <div className="overflow-x-auto">
@@ -47,6 +110,7 @@ export function AgenciesTable() {
               <tr>
                 <th className="px-4 py-3 font-medium">Agency</th>
                 <th className="px-4 py-3 font-medium">GST</th>
+                <th className="px-4 py-3 font-medium">Documents</th>
                 <th className="px-4 py-3 font-medium">Purchases</th>
                 <th className="px-4 py-3 font-medium">Spend</th>
                 <th className="px-4 py-3 font-medium">Status</th>
@@ -56,21 +120,49 @@ export function AgenciesTable() {
             <tbody className="divide-y divide-zinc-800/70">
               {isLoading ? (
                 <tr>
-                  <td colSpan={6} className="py-16 text-center text-zinc-500">
+                  <td colSpan={7} className="py-16 text-center text-zinc-500">
                     <Loader2 className="mx-auto h-5 w-5 animate-spin" />
                   </td>
                 </tr>
+              ) : filtered.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="py-16 text-center text-zinc-500">
+                    {q ? `No agencies match “${search}”.` : "No agencies yet."}
+                  </td>
+                </tr>
               ) : (
-                agencies.map((a) => (
+                filtered.map((a) => (
                   <tr key={a.id} className="hover:bg-zinc-800/40">
                     <td className="px-4 py-3">
                       <div className="font-medium text-white">{a.name}</div>
                       <div className="text-[11px] text-zinc-500">
                         {a.ownerName} · {a.email}
                       </div>
+                      {a.city && (
+                        <div className="mt-0.5 flex items-center gap-1 text-[11px] text-zinc-400">
+                          <MapPin className="h-3 w-3 text-zinc-500" />
+                          {a.city}
+                        </div>
+                      )}
                     </td>
                     <td className="px-4 py-3 font-mono text-xs text-zinc-400">
-                      {a.gstNumber}
+                      {a.gstNumber || <span className="text-zinc-600">—</span>}
+                    </td>
+                    <td className="px-4 py-3">
+                      <button
+                        onClick={() => setDocsFor(a)}
+                        className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-colors ${
+                          a.documents.length
+                            ? "border-indigo-500/30 text-indigo-300 hover:bg-indigo-500/10"
+                            : "border-zinc-700 text-zinc-500 hover:bg-zinc-800"
+                        }`}
+                        title="Review KYC documents"
+                      >
+                        <FileText className="h-3.5 w-3.5" />
+                        {a.documents.length
+                          ? `${a.documents.length} file${a.documents.length === 1 ? "" : "s"}`
+                          : "Review"}
+                      </button>
                     </td>
                     <td className="px-4 py-3">
                       <span className="inline-flex items-center gap-1 text-zinc-300">
@@ -123,6 +215,20 @@ export function AgenciesTable() {
           </table>
         </div>
       </AdminCard>
+
+      <AnimatePresence>
+        {docsFor && (
+          <AgencyDocumentsModal
+            agency={docsFor}
+            busy={action.isPending}
+            onClose={() => setDocsFor(null)}
+            onAction={(act) => {
+              action.mutate({ id: docsFor.id, action: act });
+              setDocsFor(null);
+            }}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 }

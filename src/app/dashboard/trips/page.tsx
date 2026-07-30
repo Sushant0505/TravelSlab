@@ -1,8 +1,11 @@
 import Link from "next/link";
-import { Plus, Luggage, MapPin, Users, Wallet, CalendarClock, Plane } from "lucide-react";
+import { Plus, Luggage, MapPin, Users, Wallet, CalendarClock } from "lucide-react";
 import { getSession } from "@/lib/auth";
 import { listTravelerTrips } from "@/server/traveler-repo";
-import { DashCard, PageTitle, EmptyState, TripStatusPill, formatDate } from "@/components/dashboard/ui";
+import { countApprovedAgencies } from "@/server/admin-repo";
+import { DashCard, PageTitle, EmptyState, formatDate } from "@/components/dashboard/ui";
+import { TransportIcon } from "@/components/dashboard/transport-icon";
+import { AgenciesWaiting } from "@/components/dashboard/agencies-waiting";
 import { formatINR } from "@/lib/utils";
 
 export const metadata = { title: "My Trips" };
@@ -10,7 +13,10 @@ export const metadata = { title: "My Trips" };
 export default async function MyTripsPage() {
   const session = await getSession();
   if (!session) return null;
-  const trips = await listTravelerTrips(session.id);
+  const [trips, approvedAgencies] = await Promise.all([
+    listTravelerTrips(session.id),
+    countApprovedAgencies(),
+  ]);
 
   return (
     <div>
@@ -37,20 +43,25 @@ export default async function MyTripsPage() {
         />
       ) : (
         <div className="grid gap-4 sm:grid-cols-2">
-          {trips.map((t) => (
+          {trips.map((t, i) => (
             <DashCard key={t.id} className="p-5">
               <div className="flex items-start justify-between gap-3">
                 <div className="flex items-center gap-2">
                   <span className="grid h-9 w-9 place-items-center rounded-xl bg-primary/10 text-primary">
-                    <Plane className="h-5 w-5" />
+                    <TransportIcon className="h-5 w-5" offset={i} />
                   </span>
                   <div>
                     <p className="font-semibold text-slate-900">{t.destination}</p>
                     <p className="font-mono text-[11px] text-slate-400">{t.reference}</p>
                   </div>
                 </div>
-                <TripStatusPill status={t.status} />
+                <AgenciesWaiting waiting={approvedAgencies - t.unlocks} />
               </div>
+
+              <p className="mt-2 text-[11px] text-slate-400">
+                Trusted agencies ready to plan your{" "}
+                <span className="font-medium text-slate-500">{t.destination}</span> trip
+              </p>
 
               <dl className="mt-4 grid grid-cols-2 gap-3 text-sm">
                 <Detail icon={<MapPin className="h-4 w-4" />} label="From" value={t.departureCity} />

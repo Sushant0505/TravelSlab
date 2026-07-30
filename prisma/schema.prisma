@@ -56,20 +56,40 @@ model Lead {
 }
 
 model Agency {
-  id           String       @id @default(cuid())
+  id           String           @id @default(cuid())
   name         String
   ownerName    String
-  email        String       @unique
+  email        String           @unique
   phone        String
   gstNumber    String?
+  city         String?
   passwordHash String
   documentsUrl String?
-  status       AgencyStatus @default(PENDING)
-  createdAt    DateTime     @default(now())
-  updatedAt    DateTime     @updatedAt
+  status       AgencyStatus     @default(PENDING)
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
   purchases    Purchase[]
+  documents    AgencyDocument[]
 
   @@index([status])
+}
+
+/// KYC / verification files an agency uploads (GST certificate, PAN, etc).
+/// Stored as base64 data URLs so no external object storage is required —
+/// mirrors how home banners persist uploaded images. The heavy `dataUrl` is
+/// never selected in list views; it's fetched on demand by the admin viewer.
+model AgencyDocument {
+  id        String   @id @default(cuid())
+  agencyId  String
+  label     String // e.g. "GST Certificate", "PAN Card"
+  fileName  String
+  mimeType  String
+  size      Int      @default(0)
+  dataUrl   String // data:<mime>;base64,<...>
+  createdAt DateTime @default(now())
+  agency    Agency   @relation(fields: [agencyId], references: [id], onDelete: Cascade)
+
+  @@index([agencyId])
 }
 
 model Purchase {

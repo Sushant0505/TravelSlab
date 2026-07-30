@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { notifyAgencyRegistration } from "@/server/notify-repo";
 import { adminCreateAgency } from "@/server/admin-repo";
+import { kycDocListSchema } from "@/lib/kyc";
 
 export const runtime = "nodejs";
 
@@ -17,7 +18,8 @@ const schema = z.object({
     .string()
     .optional()
     .refine((v) => !v || gstRegex.test(v), "Invalid GST number"),
-  documentsUrl: z.string().url().optional(),
+  city: z.string().trim().max(80).optional(),
+  documents: kycDocListSchema.optional().default([]),
 });
 
 /**
@@ -43,6 +45,8 @@ export async function POST(req: NextRequest) {
     email: parsed.data.email,
     phone: parsed.data.phone,
     gstNumber: parsed.data.gstNumber,
+    city: parsed.data.city,
+    documents: parsed.data.documents,
   });
 
   // Only ping admins for genuinely new applications, not re-submits.

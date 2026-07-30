@@ -21,11 +21,15 @@ import type { AdminAgency } from "@/server/admin-repo";
 
 type SortKey = "recent" | "purchases" | "spend";
 
+const STATUS_TABS = ["ALL", "PENDING", "APPROVED", "SUSPENDED", "BLOCKED"] as const;
+type StatusTab = (typeof STATUS_TABS)[number];
+
 export function AgenciesTable() {
   const qc = useQueryClient();
   const [docsFor, setDocsFor] = useState<AdminAgency | null>(null);
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<SortKey>("recent");
+  const [statusTab, setStatusTab] = useState<StatusTab>("ALL");
 
   const { data, isLoading } = useQuery({
     queryKey: ["admin-agencies"],
@@ -54,8 +58,20 @@ export function AgenciesTable() {
 
   const agencies = data?.agencies ?? [];
 
+  // Per-status counts for the filter chips (from the full, unsearched list).
+  const counts: Record<StatusTab, number> = {
+    ALL: agencies.length,
+    PENDING: 0,
+    APPROVED: 0,
+    SUSPENDED: 0,
+    BLOCKED: 0,
+  };
+  for (const a of agencies) counts[a.status as StatusTab]++;
+
   const q = search.trim().toLowerCase();
+  const hasFilter = q.length > 0 || statusTab !== "ALL";
   const filtered = agencies
+    .filter((a) => statusTab === "ALL" || a.status === statusTab)
     .filter(
       (a) =>
         !q ||
@@ -73,6 +89,29 @@ export function AgenciesTable() {
     <div>
       <PageHeading title="Agency Management" subtitle="Approve, suspend, block or reset agencies" />
 
+      <div className="mb-4 flex flex-wrap gap-2">
+        {STATUS_TABS.map((t) => (
+          <button
+            key={t}
+            onClick={() => setStatusTab(t)}
+            className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold uppercase tracking-wide transition-colors ${
+              statusTab === t
+                ? "bg-violet-500/20 text-violet-200 ring-1 ring-violet-500/40"
+                : "text-zinc-400 hover:bg-zinc-800"
+            }`}
+          >
+            {t}
+            <span
+              className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${
+                statusTab === t ? "bg-violet-500/30 text-violet-100" : "bg-zinc-800 text-zinc-400"
+              }`}
+            >
+              {counts[t]}
+            </span>
+          </button>
+        ))}
+      </div>
+
       <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="relative w-full sm:max-w-xs">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
@@ -85,8 +124,8 @@ export function AgenciesTable() {
         </div>
         <div className="flex items-center gap-3">
           <span className="text-xs text-zinc-500">
-            {q ? `${filtered.length} of ${agencies.length}` : agencies.length} agenc
-            {(q ? filtered.length : agencies.length) === 1 ? "y" : "ies"}
+            {hasFilter ? `${filtered.length} of ${agencies.length}` : agencies.length} agenc
+            {(hasFilter ? filtered.length : agencies.length) === 1 ? "y" : "ies"}
           </span>
           <label className="flex items-center gap-2 text-xs text-zinc-400">
             Sort
@@ -127,7 +166,11 @@ export function AgenciesTable() {
               ) : filtered.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="py-16 text-center text-zinc-500">
-                    {q ? `No agencies match “${search}”.` : "No agencies yet."}
+                    {q
+                      ? `No agencies match “${search}”.`
+                      : statusTab !== "ALL"
+                        ? `No ${statusTab.toLowerCase()} agencies.`
+                        : "No agencies yet."}
                   </td>
                 </tr>
               ) : (

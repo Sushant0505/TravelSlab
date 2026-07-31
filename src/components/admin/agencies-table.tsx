@@ -204,6 +204,14 @@ export function AgenciesTable() {
                             {a.city}
                           </span>
                         )}
+                        <span className="text-zinc-500">
+                          Joined{" "}
+                          {new Date(a.joinedISO).toLocaleDateString("en-IN", {
+                            day: "numeric",
+                            month: "short",
+                            year: "numeric",
+                          })}
+                        </span>
                       </div>
                     </td>
                     <td className="px-4 py-3 font-mono text-xs text-zinc-400">
@@ -252,7 +260,8 @@ export function AgenciesTable() {
                             tone="success"
                             onClick={() => action.mutate({ id: a.id, action: "approve" })}
                           >
-                            <Check className="h-3.5 w-3.5" /> Approve
+                            <Check className="h-3.5 w-3.5" />{" "}
+                            {a.status === "PENDING" ? "Approve" : "Reactivate"}
                           </ActionButton>
                         )}
                         {a.status !== "SUSPENDED" && (

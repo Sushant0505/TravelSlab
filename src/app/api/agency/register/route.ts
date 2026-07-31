@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { notifyAgencyRegistration } from "@/server/notify-repo";
 import { adminCreateAgency } from "@/server/admin-repo";
+import { agencyPhoneExists } from "@/server/agency-auth-repo";
+import { hashPassword } from "@/lib/agency-auth";
 import { kycDocListSchema } from "@/lib/kyc";
 
 export const runtime = "nodejs";
@@ -9,24 +11,29 @@ export const runtime = "nodejs";
 const gstRegex =
   /^\d{2}[A-Z]{5}\d{4}[A-Z]{1}[A-Z\d]{1}[Z]{1}[A-Z\d]{1}$/;
 
-const schema = z.object({
-  name: z.string().min(2),
-  ownerName: z.string().min(2),
-  email: z.string().email(),
-  phone: z.string().regex(/^[6-9]\d{9}$/),
-  gstNumber: z
-    .string()
-    .optional()
-    .refine((v) => !v || gstRegex.test(v), "Invalid GST number"),
-  city: z.string().trim().max(80).optional(),
-  documents: kycDocListSchema.optional().default([]),
-});
+const schema = z
+  .object({
+    name: z.string().min(2),
+    ownerName: z.string().min(2),
+    email: z.string().email(),
+    phone: z.string().regex(/^[6-9]\d{9}$/),
+    gstNumber: z
+      .string()
+      .optional()
+      .refine((v) => !v || gstRegex.test(v), "Invalid GST number"),
+    city: z.string().trim().max(80).optional(),
+    password: z.string().min(8, "Password must be at least 8 characters"),
+    confirmPassword: z.string(),
+    documents: kycDocListSchema.optional().default([]),
+  })
+  .refine((v) => v.password === v.confirmPassword, {
+    message: "Passwords do not match",
+    path: ["confirmPassword"],
+  });
 
 /**
- * POST /api/agency/register — create a PENDING agency awaiting admin approval.
- *
- * Production: hash a temp password / send a magic link, store KYC docs,
- * and create an ADMIN notification. Persisted via Prisma once DB is connected.
+ * POST /api/agency/register — create a PENDING agency with its own password.
+ * Password is bcrypt-hashed; email + phone must be unique.
  */
 export async function POST(req: NextRequest) {
   const parsed = schema.safeParse(await req.json().catch(() => ({})));
@@ -36,31 +43,45 @@ export async function POST(req: NextRequest) {
       { status: 422 },
     );
   }
+  const input = parsed.data;
 
-  // Persist the agency as PENDING so it shows up in the admin agencies list.
-  // (Swap for `await prisma.agency.create(...)` once the DB is connected.)
+  // Phone must be unique.
+  if (await agencyPhoneExists(input.phone)) {
+    return NextResponse.json(
+      { error: "This phone number is already registered." },
+      { status: 409 },
+    );
+  }
+
+  const passwordHash = await hashPassword(input.password);
+
+  // adminCreateAgency dedupes by email; `created: false` => email already taken.
   const { created } = await adminCreateAgency({
-    name: parsed.data.name,
-    ownerName: parsed.data.ownerName,
-    email: parsed.data.email,
-    phone: parsed.data.phone,
-    gstNumber: parsed.data.gstNumber,
-    city: parsed.data.city,
-    documents: parsed.data.documents,
+    name: input.name,
+    ownerName: input.ownerName,
+    email: input.email,
+    phone: input.phone,
+    gstNumber: input.gstNumber,
+    city: input.city,
+    passwordHash,
+    documents: input.documents,
   });
 
-  // Only ping admins for genuinely new applications, not re-submits.
-  if (created) await notifyAgencyRegistration(parsed.data.name);
+  if (!created) {
+    return NextResponse.json(
+      { error: "An account with this email already exists. Please sign in." },
+      { status: 409 },
+    );
+  }
+
+  await notifyAgencyRegistration(input.name);
 
   return NextResponse.json(
     {
       ok: true,
       status: "PENDING",
-      created,
-      message: created
-        ? "Submitted for admin approval"
-        : "An application with this email is already pending",
+      message: "Registration submitted — your account is awaiting admin approval.",
     },
-    { status: created ? 201 : 200 },
+    { status: 201 },
   );
 }

@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { signSession, SESSION_COOKIE, sessionCookieOptions } from "@/lib/auth";
-import { findAgencyByEmail } from "@/server/admin-repo";
-import { DEMO_AGENCY_PASSWORD } from "@/lib/session";
+import { findAgencyAuthByEmail } from "@/server/agency-auth-repo";
+import { verifyPassword } from "@/lib/agency-auth";
+import { checkAuthRateLimit } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 
@@ -11,31 +12,41 @@ const schema = z.object({
   password: z.string().min(1),
 });
 
+const STATUS_MESSAGE: Record<string, string> = {
+  PENDING: "Your agency account is awaiting approval.",
+  SUSPENDED: "Your agency account has been suspended. Please contact support.",
+  BLOCKED: "Your agency account has been blocked.",
+};
+
 export async function POST(req: NextRequest) {
   const parsed = schema.safeParse(await req.json().catch(() => ({})));
   if (!parsed.success)
     return NextResponse.json({ error: "Invalid payload" }, { status: 422 });
 
-  const agency = await findAgencyByEmail(parsed.data.email);
+  const email = parsed.data.email.trim().toLowerCase();
 
-  // Shared portal password comes from env in production; the demo password only
-  // works in local dev so a launched site can't be opened with the built-in one.
-  const isProd = process.env.NODE_ENV === "production";
-  const portalPassword =
-    process.env.AGENCY_LOGIN_PASSWORD ?? (isProd ? "" : DEMO_AGENCY_PASSWORD);
-  if (!portalPassword) {
+  // Throttle brute-force attempts per email.
+  const rl = await checkAuthRateLimit(`agency-login:${email}`);
+  if (!rl.allowed) {
     return NextResponse.json(
-      { error: "Agency login isn’t configured. Set AGENCY_LOGIN_PASSWORD in the environment." },
-      { status: 503 },
+      { error: "Too many attempts. Please try again in a few minutes." },
+      { status: 429 },
     );
   }
 
-  if (!agency || parsed.data.password !== portalPassword) {
+  const agency = await findAgencyAuthByEmail(email);
+
+  // Same generic error whether the email is unknown or the password is wrong.
+  const passwordOk =
+    agency !== null && (await verifyPassword(parsed.data.password, agency.passwordHash));
+  if (!agency || !passwordOk) {
     return NextResponse.json({ error: "Invalid email or password" }, { status: 401 });
   }
+
+  // Only APPROVED agencies may sign in.
   if (agency.status !== "APPROVED") {
     return NextResponse.json(
-      { error: `Your account is ${agency.status.toLowerCase()}. Contact support.` },
+      { error: STATUS_MESSAGE[agency.status] ?? "Your account cannot sign in yet." },
       { status: 403 },
     );
   }

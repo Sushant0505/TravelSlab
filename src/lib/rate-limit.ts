@@ -97,3 +97,33 @@ function incrMemory(key: string): number {
   entry.count += 1;
   return entry.count;
 }
+
+// --- generic auth throttle (login / forgot-password) ------------------------
+
+const AUTH_MAX = Number(process.env.AUTH_RATE_MAX ?? 8);
+const AUTH_WINDOW_SECONDS = 15 * 60;
+
+/** Throttle sensitive auth actions: max AUTH_MAX per key per 15 minutes. */
+export async function checkAuthRateLimit(key: string): Promise<{ allowed: boolean }> {
+  if (process.env.RATE_LIMIT_DISABLED === "true") return { allowed: true };
+
+  const full = `auth:${key}`;
+  const redis = await getRedis();
+  let count: number;
+  if (redis) {
+    count = await redis.incr(full);
+    if (count === 1) await redis.expire(full, AUTH_WINDOW_SECONDS);
+    redis.quit?.();
+  } else {
+    const now = Date.now();
+    const entry = memory.get(full);
+    if (!entry || entry.expires < now) {
+      memory.set(full, { count: 1, expires: now + AUTH_WINDOW_SECONDS * 1000 });
+      count = 1;
+    } else {
+      entry.count += 1;
+      count = entry.count;
+    }
+  }
+  return { allowed: count <= AUTH_MAX };
+}

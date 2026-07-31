@@ -47,7 +47,12 @@ const PAGE_AREAS: PageArea[] = [
     role: "AGENCY",
     login: "/agencies/login",
     home: "/agencies",
-    publicPaths: ["/agencies/login", "/agencies/register"],
+    publicPaths: [
+      "/agencies/login",
+      "/agencies/register",
+      "/agencies/forgot-password",
+      "/agencies/reset-password",
+    ],
   },
   {
     prefix: "/dashboard",

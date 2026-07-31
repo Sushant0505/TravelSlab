@@ -9,6 +9,7 @@ import {
   Mail,
   Phone,
   FileText,
+  Lock,
   Loader2,
   CheckCircle2,
   ShieldCheck,
@@ -24,6 +25,8 @@ interface Form {
   phone: string;
   city: string;
   gstNumber: string;
+  password: string;
+  confirmPassword: string;
 }
 
 const empty: Form = {
@@ -33,6 +36,8 @@ const empty: Form = {
   phone: "",
   city: "",
   gstNumber: "",
+  password: "",
+  confirmPassword: "",
 };
 
 export function RegisterForm() {
@@ -42,6 +47,7 @@ export function RegisterForm() {
     "idle",
   );
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [serverError, setServerError] = useState("");
 
   function set(patch: Partial<Form>) {
     setForm((f) => ({ ...f, ...patch }));
@@ -54,12 +60,16 @@ export function RegisterForm() {
     if (!/^\S+@\S+\.\S+$/.test(form.email)) e.email = "Valid email required";
     if (!/^[6-9]\d{9}$/.test(form.phone)) e.phone = "Valid 10-digit phone";
     if (form.city.trim().length < 2) e.city = "Enter your city";
+    if (form.password.length < 8) e.password = "At least 8 characters";
+    if (form.confirmPassword !== form.password)
+      e.confirmPassword = "Passwords do not match";
     setErrors(e);
     return Object.keys(e).length === 0;
   }
 
   async function submit(ev: React.FormEvent) {
     ev.preventDefault();
+    setServerError("");
     if (!validate()) return;
     setStatus("sending");
     try {
@@ -72,9 +82,15 @@ export function RegisterForm() {
           documents: docs,
         }),
       });
-      if (!res.ok) throw new Error();
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setServerError(data?.error ?? "Something went wrong. Please try again.");
+        setStatus("error");
+        return;
+      }
       setStatus("done");
     } catch {
+      setServerError("Network error. Please try again.");
       setStatus("error");
     }
   }
@@ -93,15 +109,15 @@ export function RegisterForm() {
           Application submitted
         </h2>
         <p className="mt-2 text-slate-500">
-          Your agency <b>{form.name}</b> is now pending admin approval. We&apos;ll
-          email <b>{form.email}</b> once you&apos;re verified — usually within 24
-          hours.
+          Your agency <b>{form.name}</b> is now pending admin approval. Once
+          verified, sign in with <b>{form.email}</b> and your password to start
+          unlocking leads.
         </p>
         <Link
-          href="/agencies"
+          href="/agencies/login"
           className="mt-6 inline-block rounded-xl bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-indigo-700"
         >
-          Preview the marketplace
+          Go to sign in
         </Link>
       </motion.div>
     );
@@ -164,6 +180,27 @@ export function RegisterForm() {
           placeholder="22AAAAA0000A1Z5"
         />
 
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field
+            label="Password"
+            icon={<Lock className="h-4 w-4" />}
+            type="password"
+            value={form.password}
+            error={errors.password}
+            onChange={(v) => set({ password: v })}
+            placeholder="At least 8 characters"
+          />
+          <Field
+            label="Confirm password"
+            icon={<Lock className="h-4 w-4" />}
+            type="password"
+            value={form.confirmPassword}
+            error={errors.confirmPassword}
+            onChange={(v) => set({ confirmPassword: v })}
+            placeholder="Re-enter password"
+          />
+        </div>
+
         <div>
           <span className="mb-1.5 block text-sm font-medium text-slate-700">
             KYC documents
@@ -177,7 +214,7 @@ export function RegisterForm() {
 
         {status === "error" && (
           <p className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-600">
-            Something went wrong. Please check your details and try again.
+            {serverError || "Something went wrong. Please check your details and try again."}
           </p>
         )}
 

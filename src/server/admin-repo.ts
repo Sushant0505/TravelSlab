@@ -230,6 +230,8 @@ export interface CreateAgencyInput {
   phone: string;
   gstNumber?: string;
   city?: string;
+  /** bcrypt hash — never a plain password. */
+  passwordHash?: string;
   documents?: KycDocInput[];
 }
 
@@ -255,7 +257,7 @@ export function adminCreateAgency(
           phone: input.phone,
           gstNumber: input.gstNumber ?? null,
           city: input.city ?? null,
-          passwordHash: "",
+          passwordHash: input.passwordHash ?? "",
           status: "PENDING",
           documents: input.documents?.length
             ? { create: input.documents.map(toDocCreate) }
@@ -293,6 +295,11 @@ function adminCreateAgencyMemory(
   const id = `agency_${Date.now().toString(36)}`;
   if (input.documents?.length) {
     agencyDocs.set(id, input.documents.map((d) => toStoredDoc(id, d)));
+  }
+  // Dev fallback: stash the hash where agency-auth-repo can read it.
+  if (input.passwordHash) {
+    const gg = globalThis as unknown as { __agencyCreds?: Map<string, string> };
+    (gg.__agencyCreds ?? (gg.__agencyCreds = new Map())).set(id, input.passwordHash);
   }
   const agency: AdminAgency = {
     id,

@@ -12,6 +12,7 @@ import {
   Building2,
   Bell,
   ShieldCheck,
+  UserCog,
   LogOut,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -26,9 +27,10 @@ const NAV = [
   { label: "My Purchases", href: "/agencies/purchases", icon: ShoppingBag },
   { label: "Invoices", href: "/agencies/purchases#invoices", icon: Receipt },
   { label: "Verification", href: "/agencies/kyc", icon: ShieldCheck },
+  { label: "Profile Settings", href: "/agencies/profile", icon: UserCog },
 ];
 const NAV_SECONDARY = [
-  { label: "Settings", href: "#", icon: Settings },
+  { label: "Settings", href: "/agencies/profile", icon: Settings },
   { label: "Support", href: "#", icon: LifeBuoy },
 ];
 

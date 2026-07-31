@@ -73,8 +73,24 @@ model Agency {
   updatedAt    DateTime         @updatedAt
   purchases    Purchase[]
   documents    AgencyDocument[]
+  resetTokens  AgencyResetToken[]
 
   @@index([status])
+  @@index([phone])
+}
+
+/// Password-reset tokens for agencies. Only the SHA-256 hash of the token is
+/// stored; the raw token lives only in the emailed/returned reset link.
+model AgencyResetToken {
+  id        String    @id @default(cuid())
+  agencyId  String
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+  agency    Agency    @relation(fields: [agencyId], references: [id], onDelete: Cascade)
+
+  @@index([agencyId])
 }
 
 /// KYC / verification files an agency uploads (GST certificate, PAN, etc).

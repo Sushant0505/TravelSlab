@@ -1,14 +1,14 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Building2 } from "lucide-react";
-import { LoginForm } from "@/components/auth/login-form";
+import { ForgotPasswordForm } from "@/components/agency/forgot-password-form";
 
 export const metadata: Metadata = {
-  title: "Agency Login",
+  title: "Reset Agency Password",
   robots: { index: false, follow: false },
 };
 
-export default function AgencyLoginPage() {
+export default function AgencyForgotPasswordPage() {
   return (
     <main className="grid min-h-screen place-items-center bg-slate-50 px-4">
       <div className="w-full max-w-sm">
@@ -22,34 +22,14 @@ export default function AgencyLoginPage() {
             </span>
           </Link>
           <h1 className="mt-5 text-2xl font-bold text-slate-900">
-            Welcome back
+            Forgot your password?
           </h1>
           <p className="mt-1 text-sm text-slate-500">
-            Sign in to browse and unlock leads.
+            Enter your email and we&apos;ll send you a reset link.
           </p>
         </div>
 
-        <LoginForm
-          variant="agency"
-          endpoint="/api/auth/agency/login"
-          defaultNext="/agencies"
-        />
-
-        <p className="mt-3 text-center text-sm">
-          <Link
-            href="/agencies/forgot-password"
-            className="font-medium text-slate-500 hover:text-indigo-600"
-          >
-            Forgot your password?
-          </Link>
-        </p>
-
-        <p className="mt-3 text-center text-sm text-slate-500">
-          New here?{" "}
-          <Link href="/agencies/register" className="font-semibold text-indigo-600">
-            Register your agency
-          </Link>
-        </p>
+        <ForgotPasswordForm />
       </div>
     </main>
   );

@@ -1,18 +1,55 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import Image from "next/image";
+import { useQuery } from "@tanstack/react-query";
 import { motion, useMotionValue, useSpring, useTransform } from "framer-motion";
 import { MapPin, Flame } from "lucide-react";
 import { DESTINATIONS, type Destination } from "@/lib/destinations";
-import { getSlab, type SlabId } from "@/lib/slabs";
+import { SLABS } from "@/lib/slabs";
 import { formatINR } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { BudgetFilter, DESTINATIONS_BY_SLAB } from "./budget-filter";
+import { BudgetFilter, type TierView } from "./budget-filter";
+
+/** Built-in ranges — shown instantly, then replaced by the admin's tiers. */
+function defaultTierViews(): TierView[] {
+  return SLABS.map((s) => ({
+    id: s.id,
+    label: s.label,
+    minPerHead: s.min,
+    maxPerHead: Number.isFinite(s.max) ? s.max : null,
+    leadPrice: s.leadPrice,
+  }));
+}
 
 export function PopularDestinations() {
-  const [slab, setSlab] = useState<SlabId | null>(null);
-  const visible = slab ? DESTINATIONS_BY_SLAB[slab] : DESTINATIONS;
+  const { data } = useQuery({
+    queryKey: ["slab-tiers-public"],
+    queryFn: async (): Promise<{ tiers: TierView[] }> =>
+      (await fetch("/api/slab-tiers")).json(),
+    // placeholderData (not initialData) → paint the built-in ranges instantly
+    // BUT still fetch the admin's live tiers immediately so edits show up.
+    placeholderData: { tiers: defaultTierViews() },
+    staleTime: 60_000,
+  });
+  const tiers = data?.tiers?.length ? data.tiers : defaultTierViews();
+
+  // Bucket the destination catalogue by each (admin-defined) budget range.
+  const buckets = useMemo(() => {
+    const map: Record<string, Destination[]> = {};
+    for (const t of tiers) {
+      map[t.id] = DESTINATIONS.filter(
+        (d) =>
+          d.startingFrom >= t.minPerHead &&
+          (t.maxPerHead == null || d.startingFrom < t.maxPerHead),
+      );
+    }
+    return map;
+  }, [tiers]);
+
+  const [slab, setSlab] = useState<string | null>(null);
+  const visible = slab ? buckets[slab] ?? [] : DESTINATIONS;
+  const selectedLabel = tiers.find((t) => t.id === slab)?.label ?? "";
 
   return (
     <section id="destinations" className="py-16 md:py-20">
@@ -31,7 +68,12 @@ export function PopularDestinations() {
         </div>
 
         <div className="grid gap-6 lg:grid-cols-[260px_minmax(0,1fr)]">
-          <BudgetFilter selected={slab} onSelect={setSlab} />
+          <BudgetFilter
+            tiers={tiers}
+            buckets={buckets}
+            selected={slab}
+            onSelect={setSlab}
+          />
 
           <div>
             {slab && (
@@ -42,7 +84,7 @@ export function PopularDestinations() {
                 </span>{" "}
                 {visible.length === 1 ? "destination" : "destinations"} under{" "}
                 <span className="font-semibold text-foreground">
-                  {getSlab(slab).label}
+                  {selectedLabel}
                 </span>{" "}
                 per traveler.
               </p>

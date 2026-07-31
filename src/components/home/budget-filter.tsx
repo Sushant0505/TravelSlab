@@ -3,34 +3,42 @@
 import Link from "next/link";
 import { AnimatePresence, motion } from "framer-motion";
 import { SlidersHorizontal, RotateCcw, ChevronDown, MapPin } from "lucide-react";
-import { SLABS, assignSlab, type SlabId } from "@/lib/slabs";
 import { DESTINATIONS, type Destination } from "@/lib/destinations";
 import { formatINR, cn } from "@/lib/utils";
 
-/**
- * Destinations bucketed by budget slab, derived once from the static catalogue.
- * A destination belongs to the slab its per-person starting price falls into.
- */
-export const DESTINATIONS_BY_SLAB: Record<SlabId, Destination[]> = SLABS.reduce(
-  (acc, slab) => {
-    acc[slab.id] = DESTINATIONS.filter(
-      (d) => assignSlab(d.startingFrom).id === slab.id,
-    );
-    return acc;
-  },
-  {} as Record<SlabId, Destination[]>,
-);
+/** A slab range as shown in the filter (admin-managed). */
+export interface TierView {
+  id: string;
+  label: string;
+  minPerHead: number;
+  maxPerHead: number | null;
+  leadPrice: number;
+}
+
+// Colour bar per range, cycled by position.
+const GRADIENTS = [
+  "from-emerald-400 to-teal-500",
+  "from-cyan-400 to-blue-500",
+  "from-violet-400 to-purple-600",
+  "from-fuchsia-400 to-pink-600",
+  "from-orange-400 to-red-500",
+  "from-amber-400 to-yellow-600",
+];
 
 /**
- * Left-rail budget filter. Picking a slab both filters the destination grid
- * and expands that slab to reveal the destinations sitting under that budget.
+ * Left-rail budget filter. Ranges come from the admin's slab tiers; picking one
+ * filters the destination grid and reveals the destinations under that budget.
  */
 export function BudgetFilter({
+  tiers,
+  buckets,
   selected,
   onSelect,
 }: {
-  selected: SlabId | null;
-  onSelect: (slab: SlabId | null) => void;
+  tiers: TierView[];
+  buckets: Record<string, Destination[]>;
+  selected: string | null;
+  onSelect: (id: string | null) => void;
 }) {
   return (
     <aside className="lg:sticky lg:top-24">
@@ -67,38 +75,34 @@ export function BudgetFilter({
           )}
         >
           All budgets
-          <span className="text-xs text-muted-foreground">
-            {DESTINATIONS.length}
-          </span>
+          <span className="text-xs text-muted-foreground">{DESTINATIONS.length}</span>
         </button>
 
         <ul className="space-y-1.5">
-          {SLABS.map((slab) => {
-            const list = DESTINATIONS_BY_SLAB[slab.id];
-            const isOpen = selected === slab.id;
+          {tiers.map((tier, i) => {
+            const list = buckets[tier.id] ?? [];
+            const isOpen = selected === tier.id;
 
             return (
-              <li key={slab.id}>
+              <li key={tier.id}>
                 <button
                   type="button"
                   aria-expanded={isOpen}
-                  onClick={() => onSelect(isOpen ? null : slab.id)}
+                  onClick={() => onSelect(isOpen ? null : tier.id)}
                   className={cn(
                     "flex w-full items-center gap-2.5 rounded-2xl px-3 py-2.5 text-left transition-colors",
-                    isOpen
-                      ? "bg-muted/80 ring-1 ring-border"
-                      : "hover:bg-muted/60",
+                    isOpen ? "bg-muted/80 ring-1 ring-border" : "hover:bg-muted/60",
                   )}
                 >
                   <span
                     className={cn(
                       "h-7 w-1.5 shrink-0 rounded-full bg-gradient-to-b",
-                      slab.gradient,
+                      GRADIENTS[i % GRADIENTS.length],
                     )}
                   />
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-sm font-semibold">
-                      {slab.label}
+                      {tier.label}
                     </span>
                     <span className="block text-[11px] text-muted-foreground">
                       {list.length === 0

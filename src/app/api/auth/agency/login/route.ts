@@ -18,8 +18,19 @@ export async function POST(req: NextRequest) {
 
   const agency = await findAgencyByEmail(parsed.data.email);
 
-  // Demo: single shared password. Production: verify per-agency password hash.
-  if (!agency || parsed.data.password !== DEMO_AGENCY_PASSWORD) {
+  // Shared portal password comes from env in production; the demo password only
+  // works in local dev so a launched site can't be opened with the built-in one.
+  const isProd = process.env.NODE_ENV === "production";
+  const portalPassword =
+    process.env.AGENCY_LOGIN_PASSWORD ?? (isProd ? "" : DEMO_AGENCY_PASSWORD);
+  if (!portalPassword) {
+    return NextResponse.json(
+      { error: "Agency login isn’t configured. Set AGENCY_LOGIN_PASSWORD in the environment." },
+      { status: 503 },
+    );
+  }
+
+  if (!agency || parsed.data.password !== portalPassword) {
     return NextResponse.json({ error: "Invalid email or password" }, { status: 401 });
   }
   if (agency.status !== "APPROVED") {

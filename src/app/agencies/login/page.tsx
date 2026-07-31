@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { Building2 } from "lucide-react";
 import { LoginForm } from "@/components/auth/login-form";
-import { DEMO_AGENCY_EMAIL, DEMO_AGENCY_PASSWORD } from "@/lib/session";
 
 export const metadata: Metadata = {
   title: "Agency Login",
@@ -34,8 +33,6 @@ export default function AgencyLoginPage() {
           variant="agency"
           endpoint="/api/auth/agency/login"
           defaultNext="/agencies"
-          demoEmail={DEMO_AGENCY_EMAIL}
-          demoPassword={DEMO_AGENCY_PASSWORD}
         />
 
         <p className="mt-4 text-center text-sm text-slate-500">

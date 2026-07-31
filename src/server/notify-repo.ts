@@ -48,21 +48,22 @@ type NewNotif = Omit<Notification, "id" | "read" | "createdAtISO"> & {
 
 const g = globalThis as unknown as {
   __notifs?: Notification[];
-  __subs?: Map<string, Set<SlabId>>;
+  __subs?: Map<string, Set<string>>;
   __notifSeeded?: boolean;
 };
 
 const notifs: Notification[] = g.__notifs ?? (g.__notifs = []);
 
-// Seed the demo agency + a spread of others so the fan-out has recipients.
-const subs: Map<string, Set<SlabId>> =
+// Subscriptions are keyed by slab-TIER id (strings), so custom admin ranges
+// work. Default tier ids match the legacy slab ids, so demo seeds still line up.
+const subs: Map<string, Set<string>> =
   g.__subs ??
-  (g.__subs = new Map<string, Set<SlabId>>([
-    [DEMO_AGENCY_ID, new Set<SlabId>(["s5_10k", "s10_20k", "s20_50k"])],
-    ["agency_101", new Set<SlabId>(["s0_5k", "s5_10k"])],
-    ["agency_102", new Set<SlabId>(["s20_50k", "s50_100k", "s100k_plus"])],
-    ["agency_103", new Set<SlabId>(["s5_10k", "s10_20k"])],
-    ["agency_104", new Set<SlabId>(["s100k_plus"])],
+  (g.__subs = new Map<string, Set<string>>([
+    [DEMO_AGENCY_ID, new Set<string>(["s5_10k", "s10_20k", "s20_50k"])],
+    ["agency_101", new Set<string>(["s0_5k", "s5_10k"])],
+    ["agency_102", new Set<string>(["s20_50k", "s50_100k", "s100k_plus"])],
+    ["agency_103", new Set<string>(["s5_10k", "s10_20k"])],
+    ["agency_104", new Set<string>(["s100k_plus"])],
   ]));
 
 let seq = notifs.length;
@@ -125,50 +126,45 @@ function pushNotif(n: NewNotif): Promise<void> {
 // Subscriptions (Redis sets, in-memory Map fallback)
 // ===========================================================================
 
-const SLAB_ORDER = SLABS.map((s) => s.id);
-function inSlabOrder(ids: Iterable<string>): SlabId[] {
-  const set = new Set(ids);
-  return SLAB_ORDER.filter((id) => set.has(id));
-}
-
-export function getSubscriptions(agencyId: string): Promise<SlabId[]> {
+export function getSubscriptions(agencyId: string): Promise<string[]> {
   return withRedis(
-    async (r) => inSlabOrder(await r.smembers(`subs:agency:${agencyId}`)),
-    () => SLAB_ORDER.filter((sid) => subs.get(agencyId)?.has(sid)),
+    async (r) => r.smembers(`subs:agency:${agencyId}`),
+    () => Array.from(subs.get(agencyId) ?? []),
   );
 }
 
-export function setSubscriptions(agencyId: string, slabs: SlabId[]): Promise<SlabId[]> {
+export function setSubscriptions(agencyId: string, tierIds: string[]): Promise<string[]> {
+  const next = Array.from(new Set(tierIds));
   return withRedis(
     async (r) => {
       const key = `subs:agency:${agencyId}`;
       const prev = await r.smembers(key);
-      const nextSet = new Set(slabs);
+      const nextSet = new Set(next);
       const prevSet = new Set(prev);
 
       const pipe = r.pipeline();
       pipe.del(key);
-      if (slabs.length) pipe.sadd(key, ...slabs);
-      // Maintain the reverse (per-slab -> agencies) index for fan-out.
-      for (const s of prev) if (!nextSet.has(s as SlabId)) pipe.srem(`subs:slab:${s}`, agencyId);
-      for (const s of slabs) if (!prevSet.has(s)) pipe.sadd(`subs:slab:${s}`, agencyId);
+      if (next.length) pipe.sadd(key, ...next);
+      // Maintain the reverse (per-tier -> agencies) index for fan-out.
+      for (const s of prev) if (!nextSet.has(s)) pipe.srem(`subs:slab:${s}`, agencyId);
+      for (const s of next) if (!prevSet.has(s)) pipe.sadd(`subs:slab:${s}`, agencyId);
       await pipe.exec();
 
-      return inSlabOrder(slabs);
+      return next;
     },
     () => {
-      subs.set(agencyId, new Set(slabs));
-      return inSlabOrder(slabs);
+      subs.set(agencyId, new Set(next));
+      return next;
     },
   );
 }
 
-export function agenciesSubscribedTo(slab: SlabId): Promise<string[]> {
+export function agenciesSubscribedTo(tierId: string): Promise<string[]> {
   return withRedis(
-    async (r) => r.smembers(`subs:slab:${slab}`),
+    async (r) => r.smembers(`subs:slab:${tierId}`),
     () => {
       const out: string[] = [];
-      for (const [agencyId, set] of subs) if (set.has(slab)) out.push(agencyId);
+      for (const [agencyId, set] of subs) if (set.has(tierId)) out.push(agencyId);
       return out;
     },
   );
@@ -179,33 +175,30 @@ export function agenciesSubscribedTo(slab: SlabId): Promise<string[]> {
 // ===========================================================================
 
 export async function notifyNewLead(input: {
-  slab: SlabId;
+  /** Slab-tier id this lead falls into — used to match subscribed agencies. */
+  subscriptionKey: string;
   reference: string;
   destination: string;
   budgetRange: string;
 }): Promise<{ adminNotified: boolean; agenciesNotified: number }> {
-  const slabLabel = SLABS.find((s) => s.id === input.slab)?.label ?? input.slab;
-
   // Admin always hears about it.
   await pushNotif({
     audience: "ADMIN",
     kind: "LEAD_AVAILABLE",
     title: "New lead created",
     body: `${input.destination} · ${input.budgetRange} (${input.reference})`,
-    slab: input.slab,
     leadRef: input.reference,
   });
 
-  // Only agencies subscribed to this slab.
-  const recipients = await agenciesSubscribedTo(input.slab);
+  // Only agencies subscribed to this lead's slab tier.
+  const recipients = await agenciesSubscribedTo(input.subscriptionKey);
   for (const agencyId of recipients) {
     await pushNotif({
       audience: "AGENCY",
       agencyId,
       kind: "LEAD_AVAILABLE",
       title: `New ${input.destination} lead in your slab`,
-      body: `A ${slabLabel} lead just landed — be first to unlock it.`,
-      slab: input.slab,
+      body: `A ${input.budgetRange} lead just landed — be first to unlock it.`,
       leadRef: input.reference,
     });
   }

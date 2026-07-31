@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import { ShieldAlert } from "lucide-react";
 import { LoginForm } from "@/components/auth/login-form";
-import { ADMIN_EMAIL, DEMO_ADMIN_PASSWORD } from "@/lib/session";
 
 export const metadata: Metadata = {
   title: "Admin Login",
@@ -28,8 +27,6 @@ export default function AdminLoginPage() {
           variant="admin"
           endpoint="/api/auth/admin/login"
           defaultNext="/admin"
-          demoEmail={ADMIN_EMAIL}
-          demoPassword={DEMO_ADMIN_PASSWORD}
         />
       </div>
     </main>

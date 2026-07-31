@@ -38,19 +38,15 @@ export function LoginForm({
   variant,
   endpoint,
   defaultNext,
-  demoEmail,
-  demoPassword,
 }: {
   variant: Variant;
   endpoint: string;
   defaultNext: string;
-  demoEmail: string;
-  demoPassword: string;
 }) {
   const router = useRouter();
   const t = THEME[variant];
-  const [email, setEmail] = useState(demoEmail);
-  const [password, setPassword] = useState(demoPassword);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [status, setStatus] = useState<"idle" | "sending">("idle");
   const [error, setError] = useState("");
   const [next, setNext] = useState(defaultNext);
@@ -102,6 +98,8 @@ export function LoginForm({
               onChange={(e) => setEmail(e.target.value)}
               className="w-full bg-transparent text-sm outline-none"
               autoComplete="email"
+              placeholder="you@example.com"
+              required
             />
           </div>
         </label>
@@ -120,6 +118,8 @@ export function LoginForm({
               onChange={(e) => setPassword(e.target.value)}
               className="w-full bg-transparent text-sm outline-none"
               autoComplete="current-password"
+              placeholder="••••••••"
+              required
             />
           </div>
         </label>
@@ -149,16 +149,6 @@ export function LoginForm({
             </>
           )}
         </button>
-
-        <div
-          className={`rounded-xl px-3 py-2.5 text-xs ${
-            isDark ? "bg-zinc-800/60 text-zinc-400" : "bg-slate-50 text-slate-500"
-          }`}
-        >
-          <span className="font-semibold">Demo login</span> — email &amp;
-          password are pre-filled. Just click{" "}
-          <span className={t.accent}>Sign in</span>.
-        </div>
       </div>
     </form>
   );

@@ -11,7 +11,6 @@ import {
   Sparkles,
 } from "lucide-react";
 import { formatINR } from "@/lib/utils";
-import type { SlabId } from "@/lib/slabs";
 
 interface Notif {
   id: string;
@@ -27,13 +26,13 @@ interface NotifResp {
   notifications: Notif[];
 }
 interface SlabOpt {
-  id: SlabId;
+  id: string;
   label: string;
   price: number;
 }
 interface SubResp {
   slabs: SlabOpt[];
-  subscribed: SlabId[];
+  subscribed: string[];
 }
 
 export function AgencyNotifications() {
@@ -67,7 +66,7 @@ export function AgencyNotifications() {
   });
 
   const toggle = useMutation({
-    mutationFn: async (slabs: SlabId[]) => {
+    mutationFn: async (slabs: string[]) => {
       await fetch("/api/agency/subscriptions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -79,7 +78,7 @@ export function AgencyNotifications() {
 
   const subscribed = subs.data?.subscribed ?? [];
 
-  function onToggle(id: SlabId) {
+  function onToggle(id: string) {
     const next = subscribed.includes(id)
       ? subscribed.filter((s) => s !== id)
       : [...subscribed, id];

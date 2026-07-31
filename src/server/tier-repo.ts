@@ -105,6 +105,14 @@ export function resolveTierMemory(perHead: number): SlabTier {
   return pickTier(memTiers, perHead);
 }
 
+/** Resolve the tier for a budget (DB when configured, else memory). */
+export function resolveTier(perHead: number): Promise<SlabTier> {
+  return withDb(
+    (db) => resolveTierDb(db, perHead),
+    () => resolveTierMemory(perHead),
+  );
+}
+
 // --- admin CRUD -------------------------------------------------------------
 
 export function listSlabTiers(): Promise<SlabTier[]> {

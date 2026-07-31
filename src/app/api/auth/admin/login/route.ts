@@ -20,10 +20,21 @@ export async function POST(req: NextRequest) {
   if (!parsed.success)
     return NextResponse.json({ error: "Invalid payload" }, { status: 422 });
 
-  // Demo: single admin. Production: verify against Admin table password hash.
+  // Credentials come from env in production; the demo password only works in
+  // local dev, so a launched site can't be opened with the built-in password.
+  const isProd = process.env.NODE_ENV === "production";
+  const adminEmail = (process.env.ADMIN_EMAIL ?? ADMIN_EMAIL).trim().toLowerCase();
+  const adminPassword = process.env.ADMIN_PASSWORD ?? (isProd ? "" : DEMO_ADMIN_PASSWORD);
+  if (!adminPassword) {
+    return NextResponse.json(
+      { error: "Admin login isn’t configured. Set ADMIN_PASSWORD in the environment." },
+      { status: 503 },
+    );
+  }
+
   const ok =
-    parsed.data.email.trim().toLowerCase() === ADMIN_EMAIL &&
-    parsed.data.password === DEMO_ADMIN_PASSWORD;
+    parsed.data.email.trim().toLowerCase() === adminEmail &&
+    parsed.data.password === adminPassword;
   if (!ok)
     return NextResponse.json({ error: "Invalid email or password" }, { status: 401 });
 
@@ -31,7 +42,7 @@ export async function POST(req: NextRequest) {
     role: "ADMIN",
     id: ADMIN_ID,
     name: ADMIN_NAME,
-    email: ADMIN_EMAIL,
+    email: adminEmail,
   });
 
   const res = NextResponse.json({ ok: true });

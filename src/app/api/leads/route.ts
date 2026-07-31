@@ -4,6 +4,7 @@ import { assignSlab } from "@/lib/slabs";
 import { checkLeadRateLimit } from "@/lib/rate-limit";
 import { notifyNewLead, notifySuspicious } from "@/server/notify-repo";
 import { appendLead } from "@/server/lead-repo";
+import { resolveTier } from "@/server/tier-repo";
 import { findOrCreateTraveler, getTravelerAccount } from "@/server/traveler-repo";
 import { verifyOtp } from "@/lib/otp";
 import {
@@ -126,12 +127,13 @@ export async function POST(req: NextRequest) {
     travelerId: account.id,
   });
 
-  // --- Fan out: notify ONLY agencies subscribed to this lead's slab ---
+  // --- Fan out: notify ONLY agencies subscribed to this lead's slab tier ---
+  const tier = await resolveTier(perHead);
   const fanout = await notifyNewLead({
-    slab: slab.id,
+    subscriptionKey: tier.id,
     reference,
     destination: input.destination,
-    budgetRange: slab.label,
+    budgetRange: tier.label,
   });
 
   // --- Log the traveler in (passwordless) ------------------------------------

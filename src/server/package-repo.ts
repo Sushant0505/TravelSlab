@@ -53,6 +53,7 @@ export interface PublicPackage {
   itinerary: ItineraryDay[];
   maxTravelers: number;
   featured: boolean;
+  popular: boolean;
   images: string[];
   heroImage: string;
   dates: string[];
@@ -87,6 +88,7 @@ export interface PackageInput {
   itinerary: ItineraryDay[];
   maxTravelers: number;
   featured?: boolean;
+  popular?: boolean;
   images: string[];
   dates: string[]; // ISO date strings
 }
@@ -119,6 +121,7 @@ interface MemPackage {
   itinerary: ItineraryDay[];
   maxTravelers: number;
   featured: boolean;
+  popular: boolean;
   status: PackageStatus;
   order: number;
   images: string[];
@@ -160,6 +163,7 @@ type PkgRow = {
   itinerary: unknown;
   maxTravelers: number;
   featured: boolean;
+  popular: boolean;
   status: PackageStatus;
   order: number;
   createdAt: Date;
@@ -202,6 +206,7 @@ function rowToPublic(r: PkgRow): PublicPackage {
     itinerary: coerceItinerary(r.itinerary),
     maxTravelers: r.maxTravelers,
     featured: r.featured,
+    popular: r.popular,
     images,
     heroImage: images[0] ?? r.destination.heroImage,
     dates: r.dates.map((d) => d.date.toISOString()),
@@ -238,6 +243,7 @@ function memToPublic(p: MemPackage): PublicPackage {
     itinerary: p.itinerary,
     maxTravelers: p.maxTravelers,
     featured: p.featured,
+    popular: p.popular,
     images: p.images,
     heroImage: p.images[0] ?? p.destinationHero,
     dates: p.dates,
@@ -278,6 +284,7 @@ export interface PublicPackageFilter {
   /** TripType id — filter to packages tagged with this category. */
   typeId?: string;
   featured?: boolean;
+  popular?: boolean;
   limit?: number;
 }
 
@@ -316,6 +323,7 @@ export function listPublicPackages(
             : {}),
           ...(filter.typeId ? { typeId: filter.typeId } : {}),
           ...(filter.featured != null ? { featured: filter.featured } : {}),
+          ...(filter.popular != null ? { popular: filter.popular } : {}),
           ...(filter.minPrice != null || filter.maxPrice != null
             ? {
                 price: {
@@ -348,6 +356,7 @@ export function listPublicPackages(
         .filter((p) => !filter.destinationSlug || p.destinationSlug === filter.destinationSlug)
         .filter((p) => !filter.typeId || p.typeId === filter.typeId)
         .filter((p) => filter.featured == null || p.featured === filter.featured)
+        .filter((p) => filter.popular == null || p.popular === filter.popular)
         .filter((p) => inPriceRange(p.price, filter.minPrice, filter.maxPrice))
         .filter((p) => inDayRange(p.durationDays, filter.minDays, filter.maxDays))
         .filter((p) => matchesMonth(p.dates, filter.month))
@@ -487,7 +496,8 @@ export function createAgencyPackage(
           highlights: input.highlights,
           itinerary: input.itinerary as unknown as Prisma.InputJsonValue,
           maxTravelers: input.maxTravelers,
-          featured: false, // only admins may feature
+          featured: false, // only admins may feature (Handpicked departures)
+          popular: input.popular ?? false, // agency may request the Popular shelf
           status: "PENDING",
           order,
           images: { create: input.images.map((dataUrl, i) => ({ dataUrl, order: i })) },
@@ -525,6 +535,7 @@ export function createAgencyPackage(
         itinerary: input.itinerary,
         maxTravelers: input.maxTravelers,
         featured: false,
+        popular: input.popular ?? false,
         status: "PENDING",
         order,
         images: input.images,
@@ -567,6 +578,7 @@ export function updateAgencyPackage(
           highlights: input.highlights,
           itinerary: input.itinerary as unknown as Prisma.InputJsonValue,
           maxTravelers: input.maxTravelers,
+          popular: input.popular ?? false,
           status: "PENDING",
           images: { create: input.images.map((dataUrl, i) => ({ dataUrl, order: i })) },
           dates: { create: input.dates.map((d) => ({ date: new Date(d) })) },
@@ -598,6 +610,7 @@ export function updateAgencyPackage(
         highlights: input.highlights,
         itinerary: input.itinerary,
         maxTravelers: input.maxTravelers,
+        popular: input.popular ?? false,
         status: "PENDING" as PackageStatus,
         images: input.images,
         dates: input.dates,
@@ -678,7 +691,9 @@ export type AdminPackageAction =
   | "reject"
   | "hide"
   | "feature"
-  | "unfeature";
+  | "unfeature"
+  | "popular"
+  | "unpopular";
 
 export function adminPackageAction(
   id: string,
@@ -695,6 +710,8 @@ export function adminPackageAction(
       if (!p) return { ok: false, error: "Not found" };
       if (action === "feature" || action === "unfeature") {
         await db.package.update({ where: { id }, data: { featured: action === "feature" } });
+      } else if (action === "popular" || action === "unpopular") {
+        await db.package.update({ where: { id }, data: { popular: action === "popular" } });
       } else {
         await db.package.update({ where: { id }, data: { status: statusFor[action] } });
       }
@@ -704,6 +721,7 @@ export function adminPackageAction(
       const p = memPackages.find((x) => x.id === id);
       if (!p) return { ok: false, error: "Not found" };
       if (action === "feature" || action === "unfeature") p.featured = action === "feature";
+      else if (action === "popular" || action === "unpopular") p.popular = action === "popular";
       else p.status = statusFor[action]!;
       return { ok: true };
     },

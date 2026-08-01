@@ -42,6 +42,7 @@ const pkgSchema = z.object({
   highlights: z.array(z.string().trim().min(1)).max(40).default([]),
   itinerary: z.array(itinSchema).max(60).default([]),
   maxTravelers: z.coerce.number().int().min(0).max(1000).default(0),
+  popular: z.boolean().optional(),
   images: z.array(z.string()).max(12).default([]),
   dates: z.array(z.string()).max(60).default([]),
 });
@@ -63,6 +64,7 @@ function toInput(data: z.infer<typeof pkgSchema>): PackageInput {
     highlights: data.highlights,
     itinerary: data.itinerary,
     maxTravelers: data.maxTravelers,
+    popular: data.popular ?? false,
     images: data.images,
     dates: data.dates,
   };

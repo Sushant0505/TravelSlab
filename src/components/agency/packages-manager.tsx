@@ -49,6 +49,7 @@ interface FormState {
   highlights: string[];
   itinerary: ItinDay[];
   maxTravelers: number;
+  popular: boolean;
   images: string[];
   dates: string[];
 }
@@ -69,6 +70,7 @@ const EMPTY: FormState = {
   highlights: [],
   itinerary: [],
   maxTravelers: 0,
+  popular: false,
   images: [],
   dates: [],
 };
@@ -288,6 +290,7 @@ function PackageEditor({
           highlights: pkg.highlights,
           itinerary: pkg.itinerary,
           maxTravelers: pkg.maxTravelers,
+          popular: pkg.popular,
           images: pkg.images,
           dates: pkg.dates.map((d) => d.slice(0, 10)),
         }
@@ -310,6 +313,7 @@ function PackageEditor({
         slabLabel: form.slabLabel || null,
         typeId: form.typeId || null,
         typeLabel: form.typeLabel || null,
+        popular: form.popular,
       };
       const r = await fetch("/api/agency/packages", {
         method: pkg ? "PUT" : "POST",
@@ -448,6 +452,24 @@ function PackageEditor({
             <Label>Departure dates</Label>
             <DatesEditor dates={form.dates} onChange={(v) => set({ dates: v })} />
           </div>
+
+          <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
+            <input
+              type="checkbox"
+              checked={form.popular}
+              onChange={(e) => set({ popular: e.target.checked })}
+              className="mt-0.5 h-4 w-4 accent-indigo-600"
+            />
+            <span>
+              <span className="block text-sm font-medium text-slate-800">
+                Request a spot in “Popular packages”
+              </span>
+              <span className="block text-xs text-slate-500">
+                Shown on the homepage’s Popular packages shelf once approved. An admin can
+                also add or remove it there.
+              </span>
+            </span>
+          </label>
 
           {error && <p className="rounded-lg bg-rose-50 px-3 py-2 text-sm text-rose-600">{error}</p>}
         </div>

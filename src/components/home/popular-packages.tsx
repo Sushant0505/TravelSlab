@@ -26,9 +26,9 @@ const DURATIONS = [
 
 export function PopularPackages() {
   const { data: pkgData, isLoading } = useQuery({
-    queryKey: ["packages-home"],
+    queryKey: ["packages-popular"],
     queryFn: async (): Promise<{ packages: PublicPackage[] }> =>
-      (await fetch("/api/packages?limit=60")).json(),
+      (await fetch("/api/packages?popular=1&limit=60")).json(),
     staleTime: 30_000,
   });
   const { data: tierData } = useQuery({

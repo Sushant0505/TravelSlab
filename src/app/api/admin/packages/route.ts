@@ -12,7 +12,15 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const STATUSES: PackageStatus[] = ["PENDING", "APPROVED", "REJECTED", "HIDDEN", "PAUSED"];
-const ACTIONS: AdminPackageAction[] = ["approve", "reject", "hide", "feature", "unfeature"];
+const ACTIONS: AdminPackageAction[] = [
+  "approve",
+  "reject",
+  "hide",
+  "feature",
+  "unfeature",
+  "popular",
+  "unpopular",
+];
 
 export async function GET(req: NextRequest) {
   const statusParam = req.nextUrl.searchParams.get("status");

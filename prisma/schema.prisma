@@ -284,7 +284,8 @@ model Package {
   /// [{ day: number, title: string, detail: string }] — optional itinerary.
   itinerary      Json?
   maxTravelers   Int            @default(0)
-  featured       Boolean        @default(false)
+  featured       Boolean        @default(false) // admin-only: Handpicked departures
+  popular        Boolean        @default(false) // admin/agency: Popular Packages shelf
   status         PackageStatus  @default(PENDING)
   order          Int            @default(0)
   seoTitle       String?

@@ -8,6 +8,7 @@ import {
   X as XIcon,
   EyeOff,
   Star,
+  Flame,
   Loader2,
   Clock,
   MapPin,
@@ -181,6 +182,13 @@ export function PackagesManager() {
                   >
                     <Star className={`h-3.5 w-3.5 ${p.featured ? "fill-current" : ""}`} />
                     {p.featured ? "Unfeature" : "Feature"}
+                  </ActionButton>
+                  <ActionButton
+                    tone={p.popular ? "warning" : "default"}
+                    onClick={() => act.mutate({ id: p.id, action: p.popular ? "unpopular" : "popular" })}
+                  >
+                    <Flame className={`h-3.5 w-3.5 ${p.popular ? "fill-current" : ""}`} />
+                    {p.popular ? "Unpopular" : "Popular"}
                   </ActionButton>
                 </div>
               </div>

@@ -27,6 +27,7 @@ export async function GET(req: NextRequest) {
     month: sp.get("month") || undefined,
     typeId: sp.get("type") || undefined,
     featured: sp.get("featured") === "1" ? true : undefined,
+    popular: sp.get("popular") === "1" ? true : undefined,
     limit: num(sp.get("limit")),
   };
   // A missing maxPrice must mean "no upper bound", not "< null" — normalise.

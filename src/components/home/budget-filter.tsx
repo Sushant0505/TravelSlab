@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { AnimatePresence, motion } from "framer-motion";
 import { SlidersHorizontal, RotateCcw, ChevronDown, MapPin } from "lucide-react";
-import { DESTINATIONS, type Destination } from "@/lib/destinations";
 import { formatINR, cn } from "@/lib/utils";
 
 /** A slab range as shown in the filter (admin-managed). */
@@ -13,6 +12,13 @@ export interface TierView {
   minPerHead: number;
   maxPerHead: number | null;
   leadPrice: number;
+}
+
+/** Minimal destination shape the filter needs (static or DB-backed). */
+export interface DestLite {
+  slug: string;
+  name: string;
+  startingFrom: number;
 }
 
 // Colour bar per range, cycled by position.
@@ -32,11 +38,13 @@ const GRADIENTS = [
 export function BudgetFilter({
   tiers,
   buckets,
+  total,
   selected,
   onSelect,
 }: {
   tiers: TierView[];
-  buckets: Record<string, Destination[]>;
+  buckets: Record<string, DestLite[]>;
+  total: number;
   selected: string | null;
   onSelect: (id: string | null) => void;
 }) {
@@ -75,7 +83,7 @@ export function BudgetFilter({
           )}
         >
           All budgets
-          <span className="text-xs text-muted-foreground">{DESTINATIONS.length}</span>
+          <span className="text-xs text-muted-foreground">{total}</span>
         </button>
 
         <ul className="space-y-1.5">

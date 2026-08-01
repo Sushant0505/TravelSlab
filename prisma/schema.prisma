@@ -74,6 +74,7 @@ model Agency {
   purchases    Purchase[]
   documents    AgencyDocument[]
   resetTokens  AgencyResetToken[]
+  packages     Package[]
 
   @@index([status])
   @@index([phone])
@@ -220,6 +221,166 @@ model Notification {
 
   @@index([audience, read, createdAt])
   @@index([audience, refId, createdAt])
+}
+
+/// Admin-managed travel destination (Goa, Bali, …). Homepage cards and the
+/// /destinations/[slug] pages are driven by these rows. Seeded on first use
+/// from the built-in catalogue so nothing looks empty before the admin edits.
+model Destination {
+  id             String              @id @default(cuid())
+  slug           String              @unique
+  name           String
+  region         String
+  /// "India" | "World" — groups the destination in the mega menu / filters.
+  scope          String              @default("India")
+  heroImage      String
+  gallery        String[]
+  description    String
+  bestTime       String
+  idealDuration  String
+  highlights     String[]
+  tags           String[]
+  /// Cheapest per-head price across its approved packages (denormalised for
+  /// the "Starting from" badge + budget bucketing). 0 = no packages yet.
+  startingFrom   Int                 @default(0)
+  status         DestinationStatus   @default(PUBLISHED)
+  featured       Boolean             @default(false)
+  order          Int                 @default(0)
+  seoTitle       String?
+  seoDescription String?
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+  packages       Package[]
+  faqs           DestinationFAQ[]
+  reviews        DestinationReview[]
+
+  @@index([status, featured, order])
+}
+
+/// A trip package created by an agency and attached to a destination. Public
+/// projections NEVER expose `agencyId` or any agency detail — travellers only
+/// see the package itself. Auto-appears under its destination once APPROVED.
+model Package {
+  id             String         @id @default(cuid())
+  slug           String         @unique
+  name           String
+  agencyId       String
+  destinationId  String
+  duration       String // human label e.g. "6N/7D"
+  durationDays   Int            @default(0) // numeric, for the duration filter
+  price          Int // per-head, INR
+  /// Snapshot of the SlabTier the agency chose (tiers are admin-editable, so we
+  /// keep a label snapshot; bucketing also falls back to `price`).
+  slabId         String?
+  slabLabel      String?
+  /// Admin-managed trip type/category chosen by the agency (soft link + label
+  /// snapshot so deleting a type never breaks a package).
+  typeId         String?
+  typeLabel      String?
+  description    String
+  inclusions     String[]
+  exclusions     String[]
+  highlights     String[]
+  /// [{ day: number, title: string, detail: string }] — optional itinerary.
+  itinerary      Json?
+  maxTravelers   Int            @default(0)
+  featured       Boolean        @default(false)
+  status         PackageStatus  @default(PENDING)
+  order          Int            @default(0)
+  seoTitle       String?
+  seoDescription String?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  agency         Agency         @relation(fields: [agencyId], references: [id], onDelete: Cascade)
+  destination    Destination    @relation(fields: [destinationId], references: [id], onDelete: Cascade)
+  images         PackageImage[]
+  dates          PackageDate[]
+
+  @@index([destinationId, status])
+  @@index([status, featured, order])
+  @@index([agencyId])
+  @@index([price])
+}
+
+/// Gallery image for a package. Stored as a data URL (base64) or remote URL —
+/// mirrors how banners / KYC files persist without external object storage.
+model PackageImage {
+  id        String   @id @default(cuid())
+  packageId String
+  dataUrl   String
+  order     Int      @default(0)
+  createdAt DateTime @default(now())
+  package   Package  @relation(fields: [packageId], references: [id], onDelete: Cascade)
+
+  @@index([packageId])
+}
+
+/// A departure date offered for a package.
+model PackageDate {
+  id        String   @id @default(cuid())
+  packageId String
+  date      DateTime
+  seatsLeft Int?
+  createdAt DateTime @default(now())
+  package   Package  @relation(fields: [packageId], references: [id], onDelete: Cascade)
+
+  @@index([packageId])
+}
+
+/// Editable FAQ shown on a destination page (and its packages).
+model DestinationFAQ {
+  id            String      @id @default(cuid())
+  destinationId String
+  question      String
+  answer        String
+  order         Int         @default(0)
+  destination   Destination @relation(fields: [destinationId], references: [id], onDelete: Cascade)
+
+  @@index([destinationId])
+}
+
+/// Traveller review shown on a destination page (and its packages).
+model DestinationReview {
+  id            String      @id @default(cuid())
+  destinationId String
+  author        String
+  rating        Int         @default(5)
+  comment       String
+  createdAt     DateTime    @default(now())
+  destination   Destination @relation(fields: [destinationId], references: [id], onDelete: Cascade)
+
+  @@index([destinationId])
+}
+
+/// Admin-managed trip type / category (Backpacking, Bike Trips, Himalayan
+/// Treks, …). Drives the mega-menu category column + homepage trip tabs, and is
+/// the "type" an agency tags each package with. Seeded from the built-in list.
+model TripType {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  subtitle  String?
+  icon      String   @default("Compass") // lucide icon name
+  order     Int      @default(0)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([active, order])
+}
+
+enum DestinationStatus {
+  DRAFT
+  PUBLISHED
+  HIDDEN
+}
+
+enum PackageStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  HIDDEN
+  PAUSED
 }
 
 enum SlabId {

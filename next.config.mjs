@@ -2,6 +2,7 @@
 const nextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
+  distDir: process.env.BUILD_DIR || ".next",
   images: {
     formats: ["image/avif", "image/webp"],
     remotePatterns: [

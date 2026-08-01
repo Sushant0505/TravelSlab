@@ -13,16 +13,24 @@ export function PlanTripButton({
   destination,
   className,
   label,
+  perHeadBudget,
 }: {
   destination: string;
   className?: string;
   label?: string;
+  /** When set (e.g. from a package price), seeds a matching group budget so the
+   *  lead lands in the right slab. Travellers default to 2. */
+  perHeadBudget?: number;
 }) {
   const router = useRouter();
   const set = usePlanner((s) => s.set);
 
   function go() {
-    set({ destination, step: 1 });
+    set({
+      destination,
+      step: 1,
+      ...(perHeadBudget ? { budget: perHeadBudget * 2, travelers: 2 } : {}),
+    });
     router.push("/plan");
   }
 

@@ -2,23 +2,43 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import Image from "next/image";
-import { motion, AnimatePresence } from "framer-motion";
-import { Clock, Calendar, Star, MapPin, ArrowRight } from "lucide-react";
-import { tripsByCategory, type Trip, type TripCategory } from "@/lib/trips";
-import { formatINR } from "@/lib/utils";
+import { useQuery } from "@tanstack/react-query";
+import { motion } from "framer-motion";
+import { ArrowRight, Sparkles } from "lucide-react";
 import { SectionHead } from "./section-head";
+import { PackageCard } from "@/components/packages/package-card";
+import type { PublicPackage } from "@/server/package-repo";
 
-const TABS: TripCategory[] = [
-  "New Launches",
-  "International",
-  "India",
-  "Group Trips",
-];
+interface TypeOpt { id: string; name: string; slug: string }
 
+/**
+ * Handpicked departures — admin-featured approved packages, grouped by the
+ * agency-chosen trip type. Fully dynamic: an admin "features" a package to show
+ * it here; the section hides itself until at least one is featured.
+ */
 export function TripShowcase() {
-  const [tab, setTab] = useState<TripCategory>("New Launches");
-  const trips = tripsByCategory(tab).slice(0, 4);
+  const { data: pkgData, isLoading } = useQuery({
+    queryKey: ["packages-featured"],
+    queryFn: async (): Promise<{ packages: PublicPackage[] }> =>
+      (await fetch("/api/packages?featured=1&limit=12")).json(),
+    staleTime: 30_000,
+  });
+  const { data: typeData } = useQuery({
+    queryKey: ["trip-types-public"],
+    queryFn: async (): Promise<{ types: TypeOpt[] }> => (await fetch("/api/trip-types")).json(),
+    staleTime: 60_000,
+  });
+
+  const [tab, setTab] = useState<string | null>(null);
+  const packages = pkgData?.packages ?? [];
+  const typesWithPackages = (typeData?.types ?? []).filter((t) =>
+    packages.some((p) => p.typeId === t.id),
+  );
+  const visible = (tab ? packages.filter((p) => p.typeId === tab) : packages).slice(0, 8);
+  const selectedType = typesWithPackages.find((t) => t.id === tab);
+
+  // Nothing featured yet → don't render an empty section.
+  if (!isLoading && packages.length === 0) return null;
 
   return (
     <section id="showcase" className="pt-12 md:pt-16">
@@ -26,51 +46,53 @@ export function TripShowcase() {
         <SectionHead
           eyebrow="Curated trips"
           title="Handpicked departures"
-          subtitle="Fixed group departures with the best-rated itineraries. Tap any trip to plan yours."
+          subtitle="Featured departures from verified agencies. Tap any trip to see the full itinerary."
         />
 
-        {/* Tabs */}
-        <div className="mx-auto mb-10 flex w-fit flex-wrap justify-center gap-1 rounded-full bg-muted p-1.5">
-          {TABS.map((t) => (
-            <button
-              key={t}
-              onClick={() => setTab(t)}
-              className="relative rounded-full px-4 py-2 text-sm font-semibold transition-colors"
-            >
-              {tab === t && (
-                <motion.span
-                  layoutId="trip-tab"
-                  className="absolute inset-0 rounded-full bg-gradient-to-r from-primary to-accent"
-                  transition={{ type: "spring", stiffness: 300, damping: 30 }}
-                />
-              )}
-              <span
-                className={
-                  tab === t
-                    ? "relative text-white"
-                    : "relative text-muted-foreground hover:text-foreground"
-                }
-              >
-                {t}
-              </span>
-            </button>
-          ))}
-        </div>
-
-        <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
-          <AnimatePresence mode="popLayout">
-            {trips.map((trip, i) => (
-              <TripCard key={trip.slug} trip={trip} index={i} />
+        {typesWithPackages.length > 0 && (
+          <div className="mx-auto mb-10 flex w-fit max-w-full flex-wrap justify-center gap-1 rounded-full bg-muted p-1.5">
+            <Tab active={tab === null} onClick={() => setTab(null)}>All</Tab>
+            {typesWithPackages.map((t) => (
+              <Tab key={t.id} active={tab === t.id} onClick={() => setTab(t.id)}>
+                {t.name}
+              </Tab>
             ))}
-          </AnimatePresence>
-        </div>
+          </div>
+        )}
 
-        <div className="mt-10 text-center">
+        {isLoading ? (
+          <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} className="h-80 animate-pulse rounded-3xl border border-border/60 bg-card" />
+            ))}
+          </div>
+        ) : visible.length === 0 ? (
+          <div className="rounded-3xl border border-dashed border-border/70 p-10 text-center text-muted-foreground">
+            <Sparkles className="mx-auto mb-2 h-6 w-6 text-primary" />
+            No featured trips in this category yet.
+          </div>
+        ) : (
+          <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+            {visible.map((p, i) => (
+              <PackageCard key={p.id} pkg={p} index={i} showDestination />
+            ))}
+          </div>
+        )}
+
+        <div className="mt-10 flex flex-wrap items-center justify-center gap-3">
+          {selectedType && (
+            <Link
+              href={`/categories/${selectedType.slug}`}
+              className="inline-flex items-center gap-2 rounded-full border border-border px-6 py-3 text-sm font-semibold transition-colors hover:bg-muted"
+            >
+              View all {selectedType.name} <ArrowRight className="h-4 w-4" />
+            </Link>
+          )}
           <Link
             href="/plan"
             className="inline-flex items-center gap-2 rounded-full bg-foreground px-6 py-3 text-sm font-semibold text-background transition-transform hover:scale-105"
           >
-            View all trips <ArrowRight className="h-4 w-4" />
+            Plan your own trip <ArrowRight className="h-4 w-4" />
           </Link>
         </div>
       </div>
@@ -78,80 +100,30 @@ export function TripShowcase() {
   );
 }
 
-function TripCard({ trip, index }: { trip: Trip; index: number }) {
-  const href = trip.destinationSlug
-    ? `/destinations/${trip.destinationSlug}`
-    : "/plan";
-
+function Tab({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
   return (
-    <motion.div
-      layout
-      initial={{ opacity: 0, y: 24 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -10 }}
-      transition={{ delay: index * 0.06, duration: 0.4 }}
+    <button
+      onClick={onClick}
+      className="relative rounded-full px-4 py-2 text-sm font-semibold transition-colors"
     >
-      <Link
-        href={href}
-        className="group block overflow-hidden rounded-3xl border border-border/60 bg-card shadow-sm transition-all hover:-translate-y-1 hover:shadow-xl"
-      >
-        <div className="relative aspect-[4/5] overflow-hidden">
-          <Image
-            src={trip.image}
-            alt={trip.title}
-            fill
-            sizes="(max-width: 768px) 100vw, 25vw"
-            className="object-cover transition-transform duration-700 group-hover:scale-110"
-          />
-          <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/20 to-transparent" />
-
-          {trip.badge && (
-            <span className="absolute right-3 top-3 rounded-full bg-secondary px-2.5 py-1 text-[11px] font-bold text-white">
-              {trip.badge}
-            </span>
-          )}
-
-          <div className="absolute inset-x-0 bottom-0 p-4 text-white">
-            <h3 className="font-display text-lg font-bold leading-tight">
-              {trip.title}
-            </h3>
-            <div className="mt-1.5 inline-flex items-center gap-1 rounded-full bg-white/15 px-2 py-0.5 text-[11px] backdrop-blur">
-              <MapPin className="h-3 w-3" />
-              {trip.route}
-            </div>
-          </div>
-        </div>
-
-        <div className="p-4">
-          <div className="flex items-center gap-3 text-xs text-muted-foreground">
-            <span className="flex items-center gap-1">
-              <Clock className="h-3.5 w-3.5" />
-              {trip.duration}
-            </span>
-            <span className="flex items-center gap-1">
-              <Calendar className="h-3.5 w-3.5" />
-              {trip.months}
-            </span>
-          </div>
-          <div className="mt-3 flex items-end justify-between">
-            <div>
-              {trip.oldPrice && (
-                <span className="mr-1.5 text-xs text-muted-foreground line-through">
-                  {formatINR(trip.oldPrice)}
-                </span>
-              )}
-              <span className="text-lg font-bold text-foreground">
-                {formatINR(trip.price)}
-              </span>
-            </div>
-            <span className="flex items-center gap-1 text-xs font-semibold">
-              <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" />
-              {trip.rating}
-              <span className="text-muted-foreground">({trip.reviews})</span>
-            </span>
-          </div>
-        </div>
-      </Link>
-    </motion.div>
+      {active && (
+        <motion.span
+          layoutId="trip-tab"
+          className="absolute inset-0 rounded-full bg-gradient-to-r from-primary to-accent"
+          transition={{ type: "spring", stiffness: 300, damping: 30 }}
+        />
+      )}
+      <span className={active ? "relative text-white" : "relative text-muted-foreground hover:text-foreground"}>
+        {children}
+      </span>
+    </button>
   );
 }

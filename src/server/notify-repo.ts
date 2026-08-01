@@ -218,6 +218,18 @@ export function notifyAgencyRegistration(name: string): Promise<void> {
   });
 }
 
+export function notifyPackageSubmitted(
+  agencyName: string,
+  packageName: string,
+): Promise<void> {
+  return pushNotif({
+    audience: "ADMIN",
+    kind: "SYSTEM",
+    title: "New package submitted",
+    body: `${agencyName} submitted "${packageName}" for approval.`,
+  });
+}
+
 export function notifyLeadPurchased(agencyId: string, ref: string): Promise<void> {
   return pushNotif({
     audience: "AGENCY",

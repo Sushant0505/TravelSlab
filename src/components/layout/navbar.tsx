@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Menu, X, Plane, Phone, Search, User, ChevronDown } from "lucide-react";
+import { Menu, X, Plane, Phone, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import {
@@ -13,6 +13,7 @@ import {
   TrendingPanel,
 } from "./mega-menu";
 import { UserMenu, UserMenuMobile } from "./user-menu";
+import { SearchTrigger } from "./search-dialog";
 
 const MORE_LINKS: [string, string][] = [
   ["For Agencies", "/agencies"],
@@ -89,7 +90,7 @@ export function Navbar() {
           {/* Right cluster */}
           <div className="flex items-center gap-3">
             <a
-              href="tel:+919797972175"
+              href="tel:+919149050623"
               className="hidden items-center gap-2 xl:flex"
             >
               <span className="grid h-9 w-9 place-items-center rounded-full bg-slate-100 text-primary">
@@ -103,6 +104,8 @@ export function Navbar() {
               </span>
             </a>
 
+
+            <SearchTrigger />
 
             <Button asChild variant="gradient" size="sm" className="hidden md:inline-flex">
               <Link href="/plan">Plan a Trip</Link>

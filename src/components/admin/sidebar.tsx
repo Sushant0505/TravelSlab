@@ -12,6 +12,9 @@ import {
   Bell,
   Images,
   IndianRupee,
+  MapPin,
+  Package,
+  Tag,
   LogOut,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -19,6 +22,9 @@ import { cn } from "@/lib/utils";
 const NAV = [
   { label: "Overview", href: "/admin", icon: LayoutDashboard },
   { label: "Leads", href: "/admin/leads", icon: Ticket },
+  { label: "Destinations", href: "/admin/destinations", icon: MapPin },
+  { label: "Packages", href: "/admin/packages", icon: Package },
+  { label: "Trip Types", href: "/admin/trip-types", icon: Tag },
   { label: "Agencies", href: "/admin/agencies", icon: Building2 },
   { label: "Users", href: "/admin/users", icon: Users },
   { label: "Pricing", href: "/admin/pricing", icon: IndianRupee },

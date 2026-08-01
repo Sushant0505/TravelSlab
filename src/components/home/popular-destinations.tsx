@@ -1,17 +1,36 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
-import Image from "next/image";
 import { useQuery } from "@tanstack/react-query";
 import { motion, useMotionValue, useSpring, useTransform } from "framer-motion";
 import { MapPin, Flame } from "lucide-react";
-import { DESTINATIONS, type Destination } from "@/lib/destinations";
+import { DESTINATIONS } from "@/lib/destinations";
 import { SLABS } from "@/lib/slabs";
 import { formatINR } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { BudgetFilter, type TierView } from "./budget-filter";
 
-/** Built-in ranges — shown instantly, then replaced by the admin's tiers. */
+/** Normalised card shape (works for the static catalogue + DB destinations). */
+interface DestCard {
+  slug: string;
+  name: string;
+  region: string;
+  image: string;
+  tagline: string;
+  trending: boolean;
+  startingFrom: number;
+}
+
+interface ApiDestination {
+  slug: string;
+  name: string;
+  region: string;
+  heroImage: string;
+  tags: string[];
+  featured: boolean;
+  startingFrom: number;
+}
+
 function defaultTierViews(): TierView[] {
   return SLABS.map((s) => ({
     id: s.id,
@@ -22,39 +41,80 @@ function defaultTierViews(): TierView[] {
   }));
 }
 
+/** Built-in catalogue → cards, shown instantly then replaced by DB data. */
+function catalogueCards(): DestCard[] {
+  return DESTINATIONS.map((d) => ({
+    slug: d.slug,
+    name: d.name,
+    region: d.region,
+    image: d.image,
+    tagline: d.tagline,
+    trending: Boolean(d.trending),
+    startingFrom: d.startingFrom,
+  }));
+}
+
+function apiToCard(d: ApiDestination): DestCard {
+  return {
+    slug: d.slug,
+    name: d.name,
+    region: d.region,
+    image: d.heroImage,
+    tagline: d.tags.slice(0, 3).join(" · "),
+    trending: d.featured,
+    startingFrom: d.startingFrom,
+  };
+}
+
 export function PopularDestinations() {
-  const { data } = useQuery({
+  const { data: tierData } = useQuery({
     queryKey: ["slab-tiers-public"],
-    queryFn: async (): Promise<{ tiers: TierView[] }> =>
-      (await fetch("/api/slab-tiers")).json(),
-    // placeholderData (not initialData) → paint the built-in ranges instantly
-    // BUT still fetch the admin's live tiers immediately so edits show up.
+    queryFn: async (): Promise<{ tiers: TierView[] }> => (await fetch("/api/slab-tiers")).json(),
     placeholderData: { tiers: defaultTierViews() },
     staleTime: 60_000,
   });
-  const tiers = data?.tiers?.length ? data.tiers : defaultTierViews();
+  const tiers = tierData?.tiers?.length ? tierData.tiers : defaultTierViews();
 
-  // Bucket the destination catalogue by each (admin-defined) budget range.
+  const { data: destData } = useQuery({
+    queryKey: ["destinations-public"],
+    queryFn: async (): Promise<{ destinations: ApiDestination[] }> =>
+      (await fetch("/api/destinations")).json(),
+    // paint the built-in catalogue instantly, then swap to the admin's live list
+    placeholderData: {
+      destinations: DESTINATIONS.map((d) => ({
+        slug: d.slug,
+        name: d.name,
+        region: d.region,
+        heroImage: d.image,
+        tags: d.knownFor,
+        featured: Boolean(d.trending),
+        startingFrom: d.startingFrom,
+      })),
+    },
+    staleTime: 30_000,
+  });
+
+  const destinations: DestCard[] = destData?.destinations?.length
+    ? destData.destinations.map(apiToCard)
+    : catalogueCards();
+
   const buckets = useMemo(() => {
-    const map: Record<string, Destination[]> = {};
+    const map: Record<string, DestCard[]> = {};
     for (const t of tiers) {
-      map[t.id] = DESTINATIONS.filter(
-        (d) =>
-          d.startingFrom >= t.minPerHead &&
-          (t.maxPerHead == null || d.startingFrom < t.maxPerHead),
+      map[t.id] = destinations.filter(
+        (d) => d.startingFrom >= t.minPerHead && (t.maxPerHead == null || d.startingFrom < t.maxPerHead),
       );
     }
     return map;
-  }, [tiers]);
+  }, [tiers, destinations]);
 
   const [slab, setSlab] = useState<string | null>(null);
-  const visible = slab ? buckets[slab] ?? [] : DESTINATIONS;
+  const visible = slab ? buckets[slab] ?? [] : destinations;
   const selectedLabel = tiers.find((t) => t.id === slab)?.label ?? "";
 
   return (
     <section id="destinations" className="py-16 md:py-20">
       <div className="container">
-        {/* Left-aligned header so it sits naturally above the filter + grid */}
         <div className="mb-8 max-w-2xl">
           <span className="text-sm font-semibold uppercase tracking-widest text-primary">
             Popular right now
@@ -71,6 +131,7 @@ export function PopularDestinations() {
           <BudgetFilter
             tiers={tiers}
             buckets={buckets}
+            total={destinations.length}
             selected={slab}
             onSelect={setSlab}
           />
@@ -78,33 +139,19 @@ export function PopularDestinations() {
           <div>
             {slab && (
               <p className="mb-4 text-sm text-muted-foreground">
-                Showing{" "}
-                <span className="font-semibold text-foreground">
-                  {visible.length}
-                </span>{" "}
+                Showing <span className="font-semibold text-foreground">{visible.length}</span>{" "}
                 {visible.length === 1 ? "destination" : "destinations"} under{" "}
-                <span className="font-semibold text-foreground">
-                  {selectedLabel}
-                </span>{" "}
-                per traveler.
+                <span className="font-semibold text-foreground">{selectedLabel}</span> per traveler.
               </p>
             )}
 
             {visible.length === 0 ? (
               <div className="rounded-3xl border border-dashed border-border/70 p-10 text-center">
-                <p className="font-display text-lg font-semibold">
-                  No destinations in this slab yet
-                </p>
+                <p className="font-display text-lg font-semibold">No destinations in this slab yet</p>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  Try a higher budget band — or plan a custom trip and let
-                  agencies quote for it.
+                  Try a higher budget band — or plan a custom trip and let agencies quote for it.
                 </p>
-                <Button
-                  variant="gradient"
-                  size="sm"
-                  className="mt-4"
-                  onClick={() => setSlab(null)}
-                >
+                <Button variant="gradient" size="sm" className="mt-4" onClick={() => setSlab(null)}>
                   Show all budgets
                 </Button>
               </div>
@@ -122,18 +169,12 @@ export function PopularDestinations() {
   );
 }
 
-function TiltCard({ d, index }: { d: Destination; index: number }) {
+function TiltCard({ d, index }: { d: DestCard; index: number }) {
   const ref = useRef<HTMLAnchorElement>(null);
   const mx = useMotionValue(0);
   const my = useMotionValue(0);
-  const rotateX = useSpring(useTransform(my, [-0.5, 0.5], [8, -8]), {
-    stiffness: 200,
-    damping: 20,
-  });
-  const rotateY = useSpring(useTransform(mx, [-0.5, 0.5], [-8, 8]), {
-    stiffness: 200,
-    damping: 20,
-  });
+  const rotateX = useSpring(useTransform(my, [-0.5, 0.5], [8, -8]), { stiffness: 200, damping: 20 });
+  const rotateY = useSpring(useTransform(mx, [-0.5, 0.5], [-8, 8]), { stiffness: 200, damping: 20 });
 
   function onMove(e: React.MouseEvent) {
     const rect = ref.current?.getBoundingClientRect();
@@ -159,14 +200,12 @@ function TiltCard({ d, index }: { d: Destination; index: number }) {
       transition={{ delay: (index % 4) * 0.06, duration: 0.5 }}
       className="group relative block aspect-[3/4] overflow-hidden rounded-3xl [transform-style:preserve-3d]"
     >
-      <Image
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
         src={d.image}
         alt={d.name}
-        fill
-        sizes="(max-width: 768px) 50vw, 25vw"
-        className="object-cover transition-transform duration-700 group-hover:scale-110"
+        className="absolute inset-0 h-full w-full object-cover transition-transform duration-700 group-hover:scale-110"
       />
-      {/* Animated overlay */}
       <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/20 to-transparent opacity-90 transition-opacity group-hover:opacity-100" />
       <div className="absolute inset-0 bg-primary/0 transition-colors duration-500 group-hover:bg-primary/10" />
 
@@ -176,16 +215,13 @@ function TiltCard({ d, index }: { d: Destination; index: number }) {
         </span>
       )}
 
-      <div
-        className="absolute inset-x-0 bottom-0 p-4 text-white"
-        style={{ transform: "translateZ(40px)" }}
-      >
+      <div className="absolute inset-x-0 bottom-0 p-4 text-white" style={{ transform: "translateZ(40px)" }}>
         <div className="flex items-center gap-1 text-[11px] uppercase tracking-wide text-white/70">
           <MapPin className="h-3 w-3" />
           {d.region}
         </div>
         <h3 className="mt-0.5 font-display text-xl font-bold">{d.name}</h3>
-        <p className="text-xs text-white/75">{d.tagline}</p>
+        {d.tagline && <p className="text-xs text-white/75">{d.tagline}</p>}
         <div className="mt-2 translate-y-2 text-sm font-semibold text-primary opacity-0 transition-all duration-300 group-hover:translate-y-0 group-hover:opacity-100">
           From {formatINR(d.startingFrom)}
           <span className="text-white/60"> /person</span>

@@ -13,6 +13,7 @@ import {
   Bell,
   ShieldCheck,
   UserCog,
+  Package,
   LogOut,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -23,6 +24,7 @@ interface SessionResp {
 
 const NAV = [
   { label: "Marketplace", href: "/agencies", icon: LayoutGrid },
+  { label: "My Packages", href: "/agencies/packages", icon: Package },
   { label: "Notifications", href: "/agencies/notifications", icon: Bell },
   { label: "My Purchases", href: "/agencies/purchases", icon: ShoppingBag },
   { label: "Invoices", href: "/agencies/purchases#invoices", icon: Receipt },

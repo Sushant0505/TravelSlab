@@ -18,6 +18,11 @@ const TONES: Record<string, string> = {
   BLOCKED: "bg-rose-500/15 text-rose-300 ring-rose-500/30",
   // user
   ACTIVE: "bg-emerald-500/15 text-emerald-300 ring-emerald-500/30",
+  // destination / package
+  PUBLISHED: "bg-emerald-500/15 text-emerald-300 ring-emerald-500/30",
+  DRAFT: "bg-zinc-500/15 text-zinc-300 ring-zinc-500/30",
+  REJECTED: "bg-rose-500/15 text-rose-300 ring-rose-500/30",
+  PAUSED: "bg-amber-500/15 text-amber-300 ring-amber-500/30",
 };
 
 export function StatusBadge({ status }: { status: string }) {

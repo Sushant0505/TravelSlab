@@ -1,29 +1,59 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import Image from "next/image";
+import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
-import {
-  Clock,
-  CalendarDays,
-  MapPin,
-  Star,
-  ChevronLeft,
-  ChevronRight,
-  ArrowRight,
-} from "lucide-react";
-import { upcomingTrips, MONTH_PILLS, type Trip } from "@/lib/trips";
-import { formatINR } from "@/lib/utils";
+import { ChevronLeft, ChevronRight, ArrowRight } from "lucide-react";
+import { MONTH_PILLS } from "@/lib/trips";
+import { PackageCard } from "@/components/packages/package-card";
+import type { PublicPackage } from "@/server/package-repo";
 
 type Scope = "Domestic" | "International";
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
+interface DestScope { slug: string; scope: "India" | "World" }
+
+/**
+ * Upcoming Trips — dynamic rail of approved agency packages, filtered by
+ * Domestic/International (via the destination's scope) and travel month (via the
+ * package's departure dates). Any approved package appears here automatically.
+ */
 export function UpcomingTrips() {
+  const { data: pkgData, isLoading } = useQuery({
+    queryKey: ["packages-home"],
+    queryFn: async (): Promise<{ packages: PublicPackage[] }> =>
+      (await fetch("/api/packages?limit=40")).json(),
+    staleTime: 30_000,
+  });
+  const { data: destData } = useQuery({
+    queryKey: ["destinations-public"],
+    queryFn: async (): Promise<{ destinations: DestScope[] }> =>
+      (await fetch("/api/destinations")).json(),
+    staleTime: 60_000,
+  });
+
   const [scope, setScope] = useState<Scope>("Domestic");
   const [month, setMonth] = useState<string | null>(null);
   const railRef = useRef<HTMLDivElement>(null);
 
-  const trips = upcomingTrips(scope, month);
+  const packages = pkgData?.packages ?? [];
+  const scopeBySlug = useMemo(() => {
+    const m = new Map<string, "India" | "World">();
+    for (const d of destData?.destinations ?? []) m.set(d.slug, d.scope);
+    return m;
+  }, [destData]);
+
+  const trips = useMemo(() => {
+    const want = scope === "Domestic" ? "India" : "World";
+    const mIdx = month ? MONTHS.indexOf(month) : -1;
+    return packages.filter((p) => {
+      const s = scopeBySlug.get(p.destinationSlug) ?? "India";
+      if (s !== want) return false;
+      if (mIdx >= 0 && !p.dates.some((d) => new Date(d).getMonth() === mIdx)) return false;
+      return true;
+    });
+  }, [packages, scopeBySlug, scope, month]);
 
   function scrollBy(dir: number) {
     const rail = railRef.current;
@@ -31,15 +61,14 @@ export function UpcomingTrips() {
     rail.scrollBy({ left: dir * (rail.clientWidth * 0.9), behavior: "smooth" });
   }
 
+  // No approved packages at all → hide the section until agencies add trips.
+  if (!isLoading && packages.length === 0) return null;
+
   return (
     <section id="upcoming-trips" className="py-12 md:py-16">
       <div className="container">
-        {/* Header row: title · scope toggle · arrows */}
         <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <h2 className="font-display text-3xl font-bold sm:text-4xl">
-            Upcoming Trips
-          </h2>
-
+          <h2 className="font-display text-3xl font-bold sm:text-4xl">Upcoming Trips</h2>
           <div className="flex items-center gap-3">
             <ScopeToggle scope={scope} onChange={setScope} />
             <div className="hidden items-center gap-2 sm:flex">
@@ -49,7 +78,6 @@ export function UpcomingTrips() {
           </div>
         </div>
 
-        {/* Month filter pills */}
         <div className="mb-8 flex flex-wrap gap-2">
           <MonthPill active={month === null} onClick={() => setMonth(null)}>
             All Months
@@ -61,19 +89,28 @@ export function UpcomingTrips() {
           ))}
         </div>
 
-        {/* Cards rail */}
-        {trips.length === 0 ? (
+        {isLoading ? (
+          <div className="flex gap-4 overflow-hidden">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} className="h-80 w-[80%] shrink-0 animate-pulse rounded-3xl border border-border/60 bg-card sm:w-[calc(50%-0.5rem)] lg:w-[calc(25%-0.75rem)]" />
+            ))}
+          </div>
+        ) : trips.length === 0 ? (
           <div className="rounded-3xl border border-dashed border-border/70 py-16 text-center text-muted-foreground">
-            No {scope.toLowerCase()} trips
-            {month ? ` for ${month}` : ""} right now — try another month.
+            No {scope.toLowerCase()} trips{month ? ` for ${month}` : ""} right now — try another month or region.
           </div>
         ) : (
           <div
             ref={railRef}
             className="-mx-4 flex snap-x snap-mandatory gap-4 overflow-x-auto px-4 pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
           >
-            {trips.map((trip, i) => (
-              <TripCard key={trip.slug} trip={trip} index={i} />
+            {trips.map((p, i) => (
+              <div
+                key={p.id}
+                className="w-[80%] shrink-0 snap-start sm:w-[calc(50%-0.5rem)] lg:w-[calc(25%-0.75rem)]"
+              >
+                <PackageCard pkg={p} index={i} showDestination />
+              </div>
             ))}
           </div>
         )}
@@ -91,13 +128,7 @@ export function UpcomingTrips() {
   );
 }
 
-function ScopeToggle({
-  scope,
-  onChange,
-}: {
-  scope: Scope;
-  onChange: (s: Scope) => void;
-}) {
+function ScopeToggle({ scope, onChange }: { scope: Scope; onChange: (s: Scope) => void }) {
   return (
     <div className="flex rounded-full bg-muted p-1">
       {(["Domestic", "International"] as Scope[]).map((s) => (
@@ -113,13 +144,7 @@ function ScopeToggle({
               transition={{ type: "spring", stiffness: 320, damping: 30 }}
             />
           )}
-          <span
-            className={
-              scope === s
-                ? "relative text-primary-foreground"
-                : "relative text-muted-foreground hover:text-foreground"
-            }
-          >
+          <span className={scope === s ? "relative text-primary-foreground" : "relative text-muted-foreground hover:text-foreground"}>
             {s}
           </span>
         </button>
@@ -128,15 +153,7 @@ function ScopeToggle({
   );
 }
 
-function MonthPill({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
+function MonthPill({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
   return (
     <button
       onClick={onClick}
@@ -151,15 +168,7 @@ function MonthPill({
   );
 }
 
-function RailButton({
-  dir,
-  onClick,
-  label,
-}: {
-  dir: number;
-  onClick: () => void;
-  label: string;
-}) {
+function RailButton({ dir, onClick, label }: { dir: number; onClick: () => void; label: string }) {
   return (
     <button
       type="button"
@@ -167,89 +176,7 @@ function RailButton({
       onClick={onClick}
       className="grid h-9 w-9 place-items-center rounded-full bg-primary text-primary-foreground shadow-sm transition-transform hover:scale-105"
     >
-      {dir < 0 ? (
-        <ChevronLeft className="h-5 w-5" />
-      ) : (
-        <ChevronRight className="h-5 w-5" />
-      )}
+      {dir < 0 ? <ChevronLeft className="h-5 w-5" /> : <ChevronRight className="h-5 w-5" />}
     </button>
-  );
-}
-
-function TripCard({ trip, index }: { trip: Trip; index: number }) {
-  const href = trip.destinationSlug
-    ? `/destinations/${trip.destinationSlug}`
-    : "/plan";
-
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 24 }}
-      whileInView={{ opacity: 1, y: 0 }}
-      viewport={{ once: true, margin: "-60px" }}
-      transition={{ delay: (index % 4) * 0.06, duration: 0.4 }}
-      className="w-[80%] shrink-0 snap-start sm:w-[calc(50%-0.5rem)] lg:w-[calc(25%-0.75rem)]"
-    >
-      <Link
-        href={href}
-        className="group relative block aspect-[4/5] overflow-hidden rounded-3xl shadow-sm transition-shadow hover:shadow-xl"
-      >
-        <Image
-          src={trip.image}
-          alt={trip.title}
-          fill
-          sizes="(max-width: 640px) 80vw, (max-width: 1024px) 50vw, 25vw"
-          className="object-cover transition-transform duration-700 group-hover:scale-110"
-        />
-        <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/25 to-transparent" />
-
-        {trip.badge && (
-          <span className="absolute right-3 top-3 rounded-md bg-emerald-500 px-2 py-1 text-[11px] font-bold text-white shadow">
-            {trip.badge}
-          </span>
-        )}
-
-        {/* Overlaid details */}
-        <div className="absolute inset-x-0 bottom-0 p-4 text-white">
-          <h3 className="line-clamp-2 font-display text-lg font-bold leading-tight">
-            {trip.title}
-          </h3>
-          <span className="mt-2 inline-flex items-center gap-1 rounded-full bg-white/15 px-2 py-0.5 text-[11px] backdrop-blur">
-            <MapPin className="h-3 w-3" />
-            {trip.route}
-          </span>
-
-          <div className="my-3 h-px bg-white/25" />
-
-          <div className="flex items-center gap-3 text-[11px] text-white/85">
-            <span className="flex items-center gap-1">
-              <Clock className="h-3.5 w-3.5" />
-              {trip.duration}
-            </span>
-            <span className="flex items-center gap-1">
-              <CalendarDays className="h-3.5 w-3.5" />
-              {trip.months}
-            </span>
-          </div>
-
-          <div className="mt-2 flex items-end justify-between">
-            <div className="leading-none">
-              {trip.oldPrice && (
-                <span className="mr-1.5 text-xs text-white/60 line-through">
-                  {formatINR(trip.oldPrice)}
-                </span>
-              )}
-              <span className="text-xl font-extrabold">
-                {formatINR(trip.price)}
-              </span>
-            </div>
-            <span className="flex items-center gap-1 text-xs font-semibold">
-              <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" />
-              {trip.rating}
-              <span className="text-white/60">({trip.reviews})</span>
-            </span>
-          </div>
-        </div>
-      </Link>
-    </motion.div>
   );
 }

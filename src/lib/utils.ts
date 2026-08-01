@@ -19,3 +19,14 @@ export function formatCompact(value: number): string {
     maximumFractionDigits: 1,
   }).format(value);
 }
+
+/** URL-safe slug from a free-text title. "Goa Beach Escape!" -> "goa-beach-escape" */
+export function slugify(input: string): string {
+  return input
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9\s-]/g, "")
+    .replace(/[\s_-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80);
+}
